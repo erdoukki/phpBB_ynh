@@ -38,7 +38,7 @@ sudo cp -a ../sources/french_language/* $final_path/
 sudo chown -R www-data:www-data $final_path
 
 # Configuration of phpBB
-sudo curl -k -X POST \
+curl -k -X POST \
   -H "Host: $domain" \
   --data-urlencode "dbms=mysqli" \
   --data-urlencode "dbhost=localhost" \

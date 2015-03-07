@@ -15,7 +15,6 @@
         "install" : [
             {
                 "name": "domain",
-                "type": "domain",
                 "ask": {
                     "en": "Choose a domain for phpBB",
                     "fr": "Choisissez un domaine pour phpBB"
@@ -24,7 +23,6 @@
             },
             {
                 "name": "path",
-                "type": "path",
                 "ask": {
                     "en": "Choose a path for phpBB",
                     "fr": "Choisissez un chemin pour phpBB"
@@ -52,7 +50,6 @@
             },
             {
                 "name": "admin_pwd",
-                "type": "password",
                 "ask": {
                     "en": "Indicate phpBB admin password",
                     "fr": "Renseignez un mot de passe pour l'admin phpBB"
