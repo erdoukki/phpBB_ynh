@@ -42,8 +42,7 @@
                 "default": "Yes"
 	    },
             {
-                "name": "admin",
-                "type": "name",
+                "name": "admin_name",
                 "ask": {
                     "en": "Indicate phpBB admin username",
                     "fr": "Renseignez un nom pour l'admin phpBB"
@@ -62,7 +61,6 @@
             },
             {
                 "name": "admin_email",
-                "type": "email",
                 "ask": {
                     "en": "Indicate phpBB admin email - Please make sure it exists on this server !",
                     "fr": "Renseignez un e-mail pour l'admin phpBB"
