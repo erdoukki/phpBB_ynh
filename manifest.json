@@ -45,8 +45,8 @@
                 "name": "dp_pwd",
                 "type": "password",
                 "ask": {
-                    "en": "Choose a password for phpBB MySQL database",
-                    "fr": "Choisissez un mot de passe pour la base MySQL de phpBB"
+                    "en": "Choose a password for phpBB MySQL database. Please note that the table and the user will be phpBB (case sensitive !)",
+                    "fr": "Choisissez un mot de passe pour la base MySQL de phpBB. Veuillez noter que la table et l'utilisateur créé seront phpBB (sensible à la casse)"
                 },
                 "example": "my_strong_password"
             }
