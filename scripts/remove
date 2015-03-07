@@ -7,7 +7,7 @@ db_name=$app
 root_pwd=$(sudo cat /etc/yunohost/mysql)
 domain=$(sudo yunohost app setting $app domain)
 
-# Remember to keep $root_pwd without a gap to -p otherwise it doesn't work
+# Remember to keep $root_pwd without a gap with -p otherwise it doesn't work
 mysql -u root -p$root_pwd -e "DROP DATABASE $db_name ; DROP USER $db_user@localhost ;"
 sudo rm -rf /var/www/$app
 sudo rm -f /etc/nginx/conf.d/$domain.d/$app.conf
