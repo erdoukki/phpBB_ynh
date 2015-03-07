@@ -72,8 +72,8 @@
 	    {
                "name": "lang",
                 "ask": {
-                    "en": "Configure phpBB to use English ?",
-                    "fr": "Configurer phpBB en Français ?"
+                    "en": "Configure phpBB's language",
+                    "fr": "Configurer la langue de phpBB"
                 },
                 "choices": ["en", "fr"],
                 "default": "en"
