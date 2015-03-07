@@ -42,10 +42,10 @@
                 "default": "Yes"
 	    },
             {
-                "name": "admin_name",
+                "name": "admin_login",
                 "ask": {
-                    "en": "Indicate phpBB admin username",
-                    "fr": "Renseignez un nom pour l'admin phpBB"
+                    "en": "Indicate phpBB admin login",
+                    "fr": "Renseignez un login pour l'admin phpBB"
                 },
                 "example": "phpBB_admin",
                 "default": "phpBB_admin"

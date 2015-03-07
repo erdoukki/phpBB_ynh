@@ -6,7 +6,7 @@ app=phpBB
 domain=$1
 path=$2
 is_public=$3
-admin=$4
+admin_login=$4
 admin_pwd=$5
 admin_email=$6
 lang=$7
@@ -45,8 +45,8 @@ sudo curl -k -X POST \
   --data-urlencode "dbname=$db_user" \
   --data-urlencode "dbuser=$db_user" \
   --data-urlencode "dbpasswd=$db_pwd" \
-  --data-urlencode "default_lang=$lang" \
-  --data-urlencode "admin_name=$admin" \
+  --data-urlencode "default_lang=en" \
+  --data-urlencode "admin_name=$admin_login" \
   --data-urlencode "admin_pass1=$admin_pwd" \
   --data-urlencode "admin_pass2=$admin_pwd" \
   --data-urlencode "board_email=$admin_email" \
@@ -55,7 +55,7 @@ sudo curl -k -X POST \
   --data-urlencode "server_port=443" \
   --data-urlencode "script_path=$path" \
   --data-urlencode "submit=next" \
-  "https://127.0.0.1/forum/install/index.php?mode=install" > /dev/null 2>&1
+  "https://127.0.0.1$path/install/index.php?mode=install" > /dev/null 2>&1
 
 # We need to rename the install folder
 #sudo mv $final_path/install $final_path/install_old
