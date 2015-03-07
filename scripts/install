@@ -6,11 +6,9 @@ app=phpBB
 domain=$1
 path=$2
 is_public=$3
-db_pwd=$4
-
 
 # Check domain/path availability
-sudo yunohost app checkurl $domain$path -a rainloop
+sudo yunohost app checkurl $domain$path -a $app
 if [[ ! $? -eq 0 ]]; then
     exit 1
 fi
