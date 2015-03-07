@@ -29,8 +29,8 @@
                     "en": "Choose a path for phpBB",
                     "fr": "Choisissez un chemin pour phpBB"
                 },
-                "example": "/forums",
-                "default": "/forums"
+                "example": "/forum",
+                "default": "/forum"
             },
 	    {
                "name": "is_public",
