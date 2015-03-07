@@ -40,7 +40,16 @@
                 },
                 "choices": ["Yes", "No"],
                 "default": "Yes"
-	    }
+	    },
+            {
+                "name": "db_pwd",
+                "type": "password",
+                "ask": {
+                    "en": "Indicate a password fot phpBB's MySQL database",
+                    "fr": "Choisissez un mot de passe pour la base MySQL de phpBB"
+                },
+                "example": "strong_password"
+            }
         ]
     }
 }
