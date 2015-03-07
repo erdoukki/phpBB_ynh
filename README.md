@@ -13,7 +13,7 @@ Please note that the MySQL database and user created are both named "phpBB" (cas
 The MySQL server address is "localhost" in standard.<br>
 <br>
 <br>
-[French]<br>
+[Français]<br>
 phpBB est un forum en php libre et gratuit avec un design adaptatif.<br>
 Cette installation vient avec le pack français installé et disponible par défaut en plus de l'anglais.<br>
 <br>
