@@ -22,6 +22,10 @@ sudo rm -f /etc/php5/fpm/pool.d/$app.conf
 sudo mkdir -p $final_path
 sudo cp -a ../sources/$app/* $final_path
 
+# We add french language pack
+sudo cp -a ../sources/french_language/language/* $final_path/language/
+sudo cp -a ../sources/french_language/styles/prosilver/theme/* $final_path/styles/prosilver/theme/
+
 # Set permissions to $final_path directory
 sudo chown -R www-data:www-data $final_path
 

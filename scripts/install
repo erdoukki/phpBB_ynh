@@ -28,9 +28,11 @@ sudo rm -rf $final_path
 sudo mkdir -p $final_path
 sudo cp -a ../sources/phpBB/* $final_path
 
+# We add french language pack
+sudo cp -a ../sources/french_language/language/* $final_path/language/
+sudo cp -a ../sources/french_language/styles/prosilver/theme/* $final_path/styles/prosilver/theme/
 
 # Set permissions to rainloop directory
-# sudo mkdir -p $final_path/logs
 sudo chown -R www-data:www-data $final_path
 
 # Modify Nginx configuration file and copy it to Nginx conf directory
