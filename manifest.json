@@ -42,22 +42,41 @@
                 "default": "Yes"
 	    },
             {
-                "name": "dp_pwd",
-                "type": "password",
+                "name": "admin",
+                "type": "name",
                 "ask": {
-                    "en": "Choose a password for phpBB MySQL database. Please note that the table and the user will be phpBB (case sensitive !)",
-                    "fr": "Choisissez un mot de passe pour la base MySQL de phpBB. Veuillez noter que la table et l'utilisateur créé seront phpBB (sensible à la casse)"
+                    "en": "Indicate phpBB admin username",
+                    "fr": "Renseignez un nom pour l'admin phpBB"
                 },
-                "example": "my_strong_password"
+                "example": "phpBB_admin",
+                "default": "phpBB_admin"
             },
             {
-               "name": "manual_config",
+                "name": "admin_pwd",
+                "type": "password",
                 "ask": {
-                    "en": "IMPORTANT : Manual configuration after installation by going the the phpBB path web addrees. Don't forget to rename or delete phpBB/install folder once the initial configuration is finished.",
-                    "fr": "IMPORTANT : Configuration manuelle après installation en se rendant au chemin web de phpBB. N'oubliez pas de renommer ou supprimer le repertoire phpBB/install une fois que la configuration initiale est terminée"
+                    "en": "Indicate phpBB admin password",
+                    "fr": "Renseignez un mot de passe pour l'admin phpBB"
                 },
-                "choices": ["Yes", "Yes (You don't have a choice !)"],
-                "default": "Yes"
+                "example": "super_strong_admin_password"
+            },
+            {
+                "name": "admin_email",
+                "type": "email",
+                "ask": {
+                    "en": "Indicate phpBB admin email - Please make sure it exists on this server !",
+                    "fr": "Renseignez un e-mail pour l'admin phpBB"
+                },
+                "example": "admin@DOMAIN.TLD"
+            },
+	    {
+               "name": "lang",
+                "ask": {
+                    "en": "Configure phpBB to use English ?",
+                    "fr": "Configurer phpBB en Français ?"
+                },
+                "choices": ["en", "fr"],
+                "default": "en"
 	    }
         ]
     }

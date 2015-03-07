@@ -6,6 +6,10 @@ app=phpBB
 domain=$1
 path=$2
 is_public=$3
+admin=$4
+admin_pwd=$5
+admin_email=$6
+lang=$7
 
 # Check domain/path availability
 sudo yunohost app checkurl $domain$path -a $app
@@ -14,11 +18,9 @@ if [[ ! $? -eq 0 ]]; then
 fi
 
 db_user=$app
-#db_pwd=$(dd if=/dev/urandom bs=1 count=200 2> /dev/null | tr -c -d '[A-Za-z0-9]' | sed -n 's/\(.\{24\}\).*/\1/p')
-db_pwd=$4
+db_pwd=$(dd if=/dev/urandom bs=1 count=200 2> /dev/null | tr -c -d '[A-Za-z0-9]' | sed -n 's/\(.\{24\}\).*/\1/p')
 
 # Initialize database and store mysql password for upgrade
-#sudo yunohost app initdb $db_user -p $db_pwd -s $(readlink -e ../sources/SQL/mysql.initial.sql)
 sudo yunohost app initdb $db_user -p $db_pwd
 sudo yunohost app setting $app mysqlpwd -v $db_pwd
 
@@ -33,6 +35,29 @@ sudo cp -a ../sources/french_language/* $final_path/
 
 # Set permissions to rainloop directory
 sudo chown -R www-data:www-data $final_path
+
+# Configuration of phpBB
+sudo curl -k -X POST \
+  -H "Host: $domain" \
+  --data-urlencode "dbms=mysqli" \
+  --data-urlencode "dbhost=localhost" \
+  --data-urlencode "dbname=$db_user" \
+  --data-urlencode "dbuser=$db_user" \
+  --data-urlencode "dbpasswd=$db_pwd" \
+  --data-urlencode "default_lang=$lang" \
+  --data-urlencode "admin_name=$admin" \
+  --data-urlencode "admin_pass1=$admin_pwd" \
+  --data-urlencode "admin_pass2=$admin_pwd" \
+  --data-urlencode "board_email=$admin_email" \
+  --data-urlencode "server_protocol=https://" \
+  --data-urlencode "server_name=$domain" \
+  --data-urlencode "server_port=443" \
+  --data-urlencode "script_path=$path" \
+  --data-urlencode "submit=next" \
+  "https://127.0.0.1/forum/install/index.php?mode=install&sub=final" > /dev/null 2>&1
+
+# We need to rename the install folder
+sudo mv $final_path/install $final_path/install_old
 
 # Modify Nginx configuration file and copy it to Nginx conf directory
 sed -i "s@PATHTOCHANGE@$path@g" ../conf/nginx.conf
