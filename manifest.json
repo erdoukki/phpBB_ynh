@@ -53,8 +53,8 @@
             {
                "name": "manual_config",
                 "ask": {
-                    "en": "IMPORTANT : Manual configuration after installation by going the the phpBB path web addrees<br>Don't forget to rename or delete phpBB/install folder once the initial configuration is finished.",
-                    "fr": "IMPORTANT : Configuration manuelle après installation en se rendant au chemin web de phpBB<br>N'oubliez pas de renommer ou supprimer le repertoire phpBB/install une fois que la configuration initiale est terminée"
+                    "en": "IMPORTANT : Manual configuration after installation by going the the phpBB path web addrees. Don't forget to rename or delete phpBB/install folder once the initial configuration is finished.",
+                    "fr": "IMPORTANT : Configuration manuelle après installation en se rendant au chemin web de phpBB. N'oubliez pas de renommer ou supprimer le repertoire phpBB/install une fois que la configuration initiale est terminée"
                 },
                 "choices": ["Yes", "Yes (You don't have a choice !)"],
                 "default": "Yes"
