@@ -44,24 +44,66 @@ sudo apt-get update -qq > /dev/null 2>&1
 sudo apt-get install -y imagemagick > /dev/null 2>&1
 
 # Configuration of phpBB
-#  --data-urlencode "server_protocol=https://" \
 curl -k -X POST \
-  -H "Host: $domain" \
-  --data-urlencode "dbms=mysqli" \
-  --data-urlencode "dbhost=localhost" \
-  --data-urlencode "dbname=$db_user" \
-  --data-urlencode "dbuser=$db_user" \
-  --data-urlencode "dbpasswd=$db_pwd" \
-  --data-urlencode "default_lang=$lang" \
-  --data-urlencode "admin_name=$admin_login" \
-  --data-urlencode "admin_pass1=$admin_pwd" \
-  --data-urlencode "admin_pass2=$admin_pwd" \
-  --data-urlencode "board_email=$admin_email" \
-  --data-urlencode "server_name=$domain" \
-  --data-urlencode "server_port=443" \
-  --data-urlencode "script_path=$path" \
-  --data-urlencode "submit=next" \
-  "https://127.0.0.1$path/install/index.php?mode=install&sub=final" > /dev/null 2>&1
+-H "Host: $domain" \
+--data-urlencode "submit=ok" \
+"https://127.0.0.1/forum/install/index.php?mode=install&sub=requirements" > /dev/null 2>&1
+
+curl -k -X POST \
+-H "Host: $domain" \
+--data-urlencode "dbms=mysqli" \
+--data-urlencode "dbhost=localhost" \
+--data-urlencode "dbname=$app" \
+--data-urlencode "dbuser=$app" \
+--data-urlencode "dbpasswd=$db_pwd" \
+--data-urlencode "submit=ok" \
+"https://127.0.0.1/forum/install/index.php?mode=install&sub=database" > /dev/null 2>&1
+
+curl -k -X POST \
+-H "Host: $domain" \
+--data-urlencode "submit=ok" \
+"https://127.0.0.1/forum/install/index.php?mode=install&sub=database" > /dev/null 2>&1
+
+curl -k -X POST \
+-H "Host: $domain" \
+--data-urlencode "default_lang=$lang" \
+--data-urlencode "admin_name=$admin_login" \
+--data-urlencode "admin_pass1=$admin_pwd" \
+--data-urlencode "admin_pass2=$admin_pwd" \
+--data-urlencode "board_email=$admin_email" \
+--data-urlencode "submit=ok" \
+"https://127.0.0.1/forum/install/index.php?mode=install&sub=administrator" > /dev/null 2>&1
+
+curl -k -X POST \
+-H "Host: $domain" \
+--data-urlencode "submit=ok" \
+"https://127.0.0.1/forum/install/index.php?mode=install&sub=administrator" > /dev/null 2>&1
+
+curl -k -X POST \
+-H "Host: $domain" \
+--data-urlencode "submit=ok" \
+"https://127.0.0.1/forum/install/index.php?mode=install&sub=config_file" > /dev/null 2>&1
+
+curl -k -X POST \
+-H "Host: $domain" \
+--data-urlencode "email_enable=1" \
+--data-urlencode "smtp_delivery=0" \
+--data-urlencode "smtp_auth=PLAIN" \
+--data-urlencode "cookie_secure=1" \
+--data-urlencode "force_server_vars=0" \
+--data-urlencode "server_protocol=https://" \
+--data-urlencode "server_name=$domain" \
+--data-urlencode "server_port=443" \
+--data-urlencode "script_path=$path" \
+--data-urlencode "submit=ok" \
+"https://127.0.0.1/forum/install/index.php?mode=install&sub=advanced" > /dev/null 2>&1
+
+curl -k -X POST \
+-H "Host: $domain" \
+--data-urlencode "submit=ok" \
+"https://127.0.0.1/forum/install/index.php?mode=install&sub=create_table" > /dev/null 2>&1
+
+
 
 # We need to rename the install folder
 #sudo mv $final_path/install $final_path/install_old
