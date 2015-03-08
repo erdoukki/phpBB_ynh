@@ -61,7 +61,7 @@ curl -k -X POST \
   --data-urlencode "server_port=443" \
   --data-urlencode "script_path=$path" \
   --data-urlencode "submit=next" \
-  "https://127.0.0.1$path/install/index.php?mode=install&sub=create_table" > /dev/null 2>&1
+  "https://127.0.0.1$path/install/index.php?mode=install&sub=final" > /dev/null 2>&1
 
 # We need to rename the install folder
 #sudo mv $final_path/install $final_path/install_old
