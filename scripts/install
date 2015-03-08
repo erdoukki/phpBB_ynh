@@ -38,6 +38,7 @@ sudo cp -a ../sources/french_language/* $final_path/
 sudo chown -R www-data:www-data $final_path
 
 # Configuration of phpBB
+#  --data-urlencode "server_protocol=https://" \
 curl -k -X POST \
   -H "Host: $domain" \
   --data-urlencode "dbms=mysqli" \
@@ -45,12 +46,11 @@ curl -k -X POST \
   --data-urlencode "dbname=$db_user" \
   --data-urlencode "dbuser=$db_user" \
   --data-urlencode "dbpasswd=$db_pwd" \
-  --data-urlencode "default_lang=en" \
+  --data-urlencode "default_lang=$lang" \
   --data-urlencode "admin_name=$admin_login" \
   --data-urlencode "admin_pass1=$admin_pwd" \
   --data-urlencode "admin_pass2=$admin_pwd" \
   --data-urlencode "board_email=$admin_email" \
-  --data-urlencode "server_protocol=https://" \
   --data-urlencode "server_name=$domain" \
   --data-urlencode "server_port=443" \
   --data-urlencode "script_path=$path" \

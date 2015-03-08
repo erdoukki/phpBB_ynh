@@ -45,8 +45,8 @@
                     "en": "Indicate phpBB admin login",
                     "fr": "Renseignez un login pour l'admin phpBB"
                 },
-                "example": "phpBB_admin",
-                "default": "phpBB_admin"
+                "example": "admin",
+                "default": "admin"
             },
             {
                 "name": "admin_pwd",
