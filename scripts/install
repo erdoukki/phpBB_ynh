@@ -37,6 +37,10 @@ sudo cp -a ../sources/french_language/* $final_path/
 # Set permissions to rainloop directory
 sudo chown -R www-data:www-data $final_path
 
+# phpBB requires imagemagick to manipulate pictures
+sudo apt-get update -qq > /dev/null 2>&1
+sudo apt-get install -y imagemagick > /dev/null 2>&1
+
 # Configuration of phpBB
 #  --data-urlencode "server_protocol=https://" \
 curl -k -X POST \
@@ -70,10 +74,6 @@ finalphpconf=/etc/php5/fpm/pool.d/$app.conf
 sudo cp ../conf/php-fpm.conf $finalphpconf
 sudo chown root: $finalphpconf
 sudo chmod 644 $finalphpconf
-
-# phpBB requires imagemagick to manipulate pictures
-sudo apt-get update -qq > /dev/null 2>&1
-sudo apt-get install -y imagemagick > /dev/null 2>&1
 
 # Make app public if necessary
 sudo yunohost app setting $app is_public -v "$is_public"
