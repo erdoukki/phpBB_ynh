@@ -32,7 +32,9 @@ sudo mkdir -p $final_path
 sudo cp -a ../sources/phpBB/* $final_path
 
 # We add french language pack
-sudo cp -a ../sources/french_language/* $final_path/
+if [ "$lang" = "fr" ];
+	then sudo cp -a ../sources/french_language/* $final_path/
+fi
 
 # Set permissions to rainloop directory
 sudo chown -R www-data:www-data $final_path
