@@ -72,8 +72,8 @@ sudo chown root: $finalphpconf
 sudo chmod 644 $finalphpconf
 
 # phpBB requires imagemagick to manipulate pictures
-sudo apt-get update
-sudo apt-get install -y imagemagick
+sudo apt-get update -qq > /dev/null 2>&1
+sudo apt-get install -y imagemagick > /dev/null 2>&1
 
 # Make app public if necessary
 sudo yunohost app setting $app is_public -v "$is_public"
