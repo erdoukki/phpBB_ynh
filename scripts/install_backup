@@ -77,7 +77,7 @@ echo -e "\n database";
 curl -kL -X POST \
 -H "Host: $domain" \
 --data-urlencode "img_imagick=/usr/bin" \
---data-urlencode "language=$lang" \
+--data-urlencode "language=en" \
 --data-urlencode "dbms=mysqli" \
 --data-urlencode "dbhost=localhost" \
 --data-urlencode "dbport=" \
@@ -98,7 +98,7 @@ curl -kL -X POST \
 --data-urlencode "admin_pass2=$admin_pwd" \
 --data-urlencode "board_email=$admin_email" \
 --data-urlencode "img_imagick=/usr/bin" \
---data-urlencode "language=$lang" \
+--data-urlencode "language=en" \
 --data-urlencode "dbms=mysqli" \
 --data-urlencode "dbhost=localhost" \
 --data-urlencode "dbport=" \
@@ -113,7 +113,7 @@ echo -e "\n config_file";
 curl -kL -X POST \
 -H "Host: $domain" \
 --data-urlencode "img_imagick=/usr/bin" \
---data-urlencode "language=$lang" \
+--data-urlencode "language=en" \
 --data-urlencode "dbms=mysqli" \
 --data-urlencode "dbhost=localhost" \
 --data-urlencode "dbport=" \
@@ -145,7 +145,7 @@ curl -kL -X POST \
 --data-urlencode "server_port=443" \
 --data-urlencode "script_path=$path" \
 --data-urlencode "img_imagick=/usr/bin" \
---data-urlencode "language=$lang" \
+--data-urlencode "language=en" \
 --data-urlencode "dbms=mysqli" \
 --data-urlencode "dbhost=localhost" \
 --data-urlencode "dbport=" \
@@ -164,7 +164,7 @@ curl -kL -X POST \
 echo -e "\n create database";
 curl -kL -X POST \
 -H "Host: $domain" \
---data-urlencode "language=$lang" \
+--data-urlencode "language=en" \
 --data-urlencode "dbms=mysqli" \
 --data-urlencode "dbhost=localhost" \
 --data-urlencode "dbport=" \
