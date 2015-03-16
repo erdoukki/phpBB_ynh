@@ -51,8 +51,8 @@
             {
                 "name": "admin_pwd",
                 "ask": {
-                    "en": "Indicate phpBB admin password",
-                    "fr": "Renseignez un mot de passe pour l'admin phpBB"
+                    "en": "Indicate phpBB admin password. At this stage, this password is also used for phpBB MySQL database",
+                    "fr": "Renseignez un mot de passe pour l'admin phpBB. Pour l'instant, ce mot de passe est également utilisé pour la base de donnée MySQL de phpBB"
                 },
                 "example": "super_strong_admin_password"
             },
