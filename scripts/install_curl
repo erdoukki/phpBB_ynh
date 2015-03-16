@@ -42,10 +42,14 @@ fi
 # Set permissions to working directory
 sudo chown -R www-data:www-data $final_path
 
+# Special adjustements for phpBB installation (according to documentation)
+sudo chmod 666 $final_path/config.php
+sudo chmod 777 $final_path/{store,cache,files}
+sudo chmod 777 $final_path/images/avatars/upload
+
 # phpBB requires imagemagick to manipulate pictures
 sudo apt-get update -qq > /dev/null 2>&1
 sudo apt-get install -y imagemagick > /dev/null 2>&1
-
 
 # Modify Nginx configuration file and copy it to Nginx conf directory
 sed -i "s@PATHTOCHANGE@$path@g" ../conf/nginx.conf
@@ -57,6 +61,7 @@ finalphpconf=/etc/php5/fpm/pool.d/$app.conf
 sudo cp ../conf/php-fpm.conf $finalphpconf
 sudo chown root: $finalphpconf
 sudo chmod 644 $finalphpconf
+
 
 # Make app public if necessary
 sudo yunohost app setting $app is_public -v "$is_public"
@@ -73,11 +78,24 @@ sudo yunohost app ssowatconf
 
 
 # Configuration of phpBB
+echo -e "\n Initial checks";
+curl -kL -X POST \
+-H "Host: $domain" \
+--data-urlencode "submit=Proceed%20to%20next%20step" \
+"https://127.0.0.1$path/install/index.php?mode=install" > /dev/null 2>&1
+
+echo -e "\n Requirements";
+curl -kL -X POST \
+-H "Host: $domain" \
+--data-urlencode "submit=Start%20install" \
+"https://127.0.0.1$path/install/index.php?mode=install&sub=requirements" > /dev/null 2>&1
+
 echo -e "\n database";
 curl -kL -X POST \
 -H "Host: $domain" \
 --data-urlencode "img_imagick=/usr/bin" \
 --data-urlencode "language=en" \
+--data-urlencode "testdb=false" \
 --data-urlencode "dbms=mysqli" \
 --data-urlencode "dbhost=localhost" \
 --data-urlencode "dbport=" \
@@ -195,6 +213,9 @@ curl -kL -X POST \
 --data-urlencode "script_path=$path" \
 --data-urlencode "submit=Proceed%20to%20the%20next%20step" \
 "https://127.0.0.1$path/install/index.php?mode=install&sub=create_table" > /dev/null 2>&1
+
+# Special adjustements after installation (according to documentation)
+sudo chmod 644 $final_path/config.php
 
 # We need to rename the install folder
 sudo mv $final_path/install $final_path/install_old
