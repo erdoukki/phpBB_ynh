@@ -10,6 +10,8 @@ admin_login=$4
 admin_pwd=$5
 admin_email=$6
 lang=$7
+curl_inst=$8
+
 
 # Check domain/path availability
 sudo yunohost app checkurl $domain$path -a $app
@@ -32,7 +34,7 @@ sudo yunohost app setting $app admin_email -v $admin_email
 final_path=/var/www/$app
 sudo rm -rf $final_path
 sudo mkdir -p $final_path
-sudo cp -a ../sources/phpBB/* $final_path
+sudo cp -a ../sources/phpBB/* $final_path/
 
 # We add french language pack
 if [ "$lang" = "fr" ];
@@ -42,10 +44,16 @@ fi
 # Set permissions to working directory
 sudo chown -R www-data:www-data $final_path
 
+# Special adjustements for phpBB installation (according to documentation)
+sudo chmod 666 $final_path/config.php
+sudo chmod 777 $final_path/store
+sudo chmod 777 $final_path/cache
+sudo chmod 777 $final_path/files
+sudo chmod 777 $final_path/images/avatars/upload
+
 # phpBB requires imagemagick to manipulate pictures
 sudo apt-get update -qq > /dev/null 2>&1
 sudo apt-get install -y imagemagick > /dev/null 2>&1
-
 
 # Modify Nginx configuration file and copy it to Nginx conf directory
 sed -i "s@PATHTOCHANGE@$path@g" ../conf/nginx.conf
@@ -57,6 +65,7 @@ finalphpconf=/etc/php5/fpm/pool.d/$app.conf
 sudo cp ../conf/php-fpm.conf $finalphpconf
 sudo chown root: $finalphpconf
 sudo chmod 644 $finalphpconf
+
 
 # Make app public if necessary
 sudo yunohost app setting $app is_public -v "$is_public"
@@ -71,4 +80,158 @@ sudo service php5-fpm reload
 sudo service nginx reload
 sudo yunohost app ssowatconf
 
+# Make app public if necessary
+sudo yunohost app setting $app is_public -v "$curl_inst"
+if [ "$curl_inst" = "Yes" ];
+then
 
+# Configuration of phpBB
+#echo -e "\n Initial checks";
+#curl -k -X POST \
+#-H "Host: $domain" \
+#--data-urlencode "submit=Proceed%20to%20next%20step" \
+#"https://127.0.0.1$path/install/index.php?mode=install&sub=requirements" > /dev/null 2>&1
+
+#echo -e "\n Requirements";
+sudo curl -k -X POST \
+-H "Host: $domain" \
+--data-urlencode "img_imagick=/usr/bin" \
+--data-urlencode "submit=Start%20install" \
+"https://$domain$path/install/index.php?mode=install&sub=requirements" > /dev/null 2>&1
+
+#echo -e "\n database";
+sudo curl -k -X POST \
+-H "Host: $domain" \
+--data-urlencode "img_imagick=/usr/bin" \
+--data-urlencode "language=en" \
+--data-urlencode "testdb=false" \
+--data-urlencode "dbms=mysqli" \
+--data-urlencode "dbhost=localhost" \
+--data-urlencode "dbport=" \
+--data-urlencode "dbname=$db_user" \
+--data-urlencode "dbuser=$db_user" \
+--data-urlencode "table_prefix=phpbb_" \
+--data-urlencode "dbpasswd=$db_pwd" \
+--data-urlencode "submit=Proceed%20to%20next%20step" \
+"https://$domain$path/install/index.php?mode=install&sub=database" > /dev/null 2>&1
+
+#echo -e "\n admin";
+sudo curl -k -X POST \
+-H "Host: $domain" \
+--data-urlencode "img_imagick=/usr/bin" \
+--data-urlencode "default_lang=$lang" \
+--data-urlencode "admin_name=$admin_login" \
+--data-urlencode "admin_pass1=$admin_pwd" \
+--data-urlencode "admin_pass2=$admin_pwd" \
+--data-urlencode "board_email=$admin_email" \
+--data-urlencode "img_imagick=/usr/bin" \
+--data-urlencode "language=en" \
+--data-urlencode "dbms=mysqli" \
+--data-urlencode "dbhost=localhost" \
+--data-urlencode "dbport=" \
+--data-urlencode "dbname=$db_user" \
+--data-urlencode "dbuser=$db_user" \
+--data-urlencode "dbpasswd=$db_pwd" \
+--data-urlencode "table_prefix=phpbb_" \
+--data-urlencode "submit=Proceed%20to%20next%20step" \
+"https://$domain$path/install/index.php?mode=install&sub=administrator" > /dev/null 2>&1
+
+#echo -e "\n config_file";
+sudo curl -k -X POST \
+-H "Host: $domain" \
+--data-urlencode "img_imagick=/usr/bin" \
+--data-urlencode "language=en" \
+--data-urlencode "dbms=mysqli" \
+--data-urlencode "dbhost=localhost" \
+--data-urlencode "dbport=" \
+--data-urlencode "dbname=$db_user" \
+--data-urlencode "dbuser=$db_user" \
+--data-urlencode "dbpasswd=$db_pwd" \
+--data-urlencode "table_prefix=phpbb_" \
+--data-urlencode "default_lang=$lang" \
+--data-urlencode "admin_name=$admin_login" \
+--data-urlencode "admin_pass1=$admin_pwd" \
+--data-urlencode "admin_pass2=$admin_pwd" \
+--data-urlencode "board_email=$admin_email" \
+--data-urlencode "submit=Proceed%20to%20next%20step" \
+"https://$domain$path/install/index.php?mode=install&sub=config_file" > /dev/null 2>&1
+
+#echo -e "\n advanced";
+sudo curl -k -X POST \
+-H "Host: $domain" \
+--data-urlencode "email_enable=1" \
+--data-urlencode "smtp_delivery=0" \
+--data-urlencode "smtp_host=" \
+--data-urlencode "smtp_auth=PLAIN" \
+--data-urlencode "smtp_user=" \
+--data-urlencode "smtp_pass=" \
+--data-urlencode "cookie_secure=1" \
+--data-urlencode "force_server_vars=0" \
+--data-urlencode "server_protocol=https://" \
+--data-urlencode "server_name=$domain" \
+--data-urlencode "server_port=443" \
+--data-urlencode "script_path=$path" \
+--data-urlencode "img_imagick=/usr/bin" \
+--data-urlencode "language=en" \
+--data-urlencode "dbms=mysqli" \
+--data-urlencode "dbhost=localhost" \
+--data-urlencode "dbport=" \
+--data-urlencode "dbname=$db_user" \
+--data-urlencode "dbuser=$db_user" \
+--data-urlencode "dbpasswd=$db_pwd" \
+--data-urlencode "table_prefix=phpbb_" \
+--data-urlencode "default_lang=$lang" \
+--data-urlencode "admin_name=$admin_login" \
+--data-urlencode "admin_pass1=$admin_pwd" \
+--data-urlencode "admin_pass2=$admin_pwd" \
+--data-urlencode "board_email=$admin_email" \
+--data-urlencode "submit=Proceed%20to%20next%20step" \
+"https://$domain$path/install/index.php?mode=install&sub=advanced" > /dev/null 2>&1
+
+#echo -e "\n create database";
+sudo curl -k -X POST \
+-H "Host: $domain" \
+--data-urlencode "language=en" \
+--data-urlencode "dbms=mysqli" \
+--data-urlencode "dbhost=localhost" \
+--data-urlencode "dbport=" \
+--data-urlencode "dbuser=$db_user" \
+--data-urlencode "dbpasswd=$db_pwd" \
+--data-urlencode "dbname=$db_user" \
+--data-urlencode "table_prefix=phpbb_" \
+--data-urlencode "default_lang=$lang" \
+--data-urlencode "admin_name=$admin_login" \
+--data-urlencode "admin_pass1=$admin_pwd" \
+--data-urlencode "admin_pass2=$admin_pwd" \
+--data-urlencode "board_email=$admin_email" \
+--data-urlencode "img_imagick=/usr/bin" \
+--data-urlencode "ftp_path=" \
+--data-urlencode "ftp_user=" \
+--data-urlencode "ftp_pass=" \
+--data-urlencode "email_enable=1" \
+--data-urlencode "smtp_delivery=0" \
+--data-urlencode "smtp_host=" \
+--data-urlencode "smtp_auth=PLAIN" \
+--data-urlencode "smtp_user=" \
+--data-urlencode "smtp_pass=" \
+--data-urlencode "cookie_secure=1" \
+--data-urlencode "force_server_vars=0" \
+--data-urlencode "server_protocol=https://" \
+--data-urlencode "server_name=$domain" \
+--data-urlencode "server_port=443" \
+--data-urlencode "script_path=$path" \
+--data-urlencode "submit=Proceed%20to%20next%20step" \
+"https://$domain$path/install/index.php?mode=install&sub=create_table" > /dev/null 2>&1
+
+# We need to rename the install folder
+sudo mv $final_path/install $final_path/install_old
+
+fi;
+
+# Special adjustements after installation (according to documentation)
+sudo chmod 644 $final_path/config.php
+
+sudo chmod 777 $final_path/store
+sudo chmod 777 $final_path/cache
+sudo chmod 777 $final_path/files
+sudo chmod 777 $final_path/images/avatars/upload

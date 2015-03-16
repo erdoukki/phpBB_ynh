@@ -72,6 +72,15 @@
                 },
                 "choices": ["en", "fr"],
                 "default": "en"
+	    },
+	    {
+               "name": "curl_inst",
+                "ask": {
+                    "en": "Automatically configure phpBB via cURL ? [BROKEN - DO NOT USE]",
+                    "fr": "Configurer phpBB automatiquement via cURL ? [CASSE - NE PAS UTILISER]"
+                },
+                "choices": ["Yes", "No"],
+                "default": "No"
 	    }
         ]
     }
