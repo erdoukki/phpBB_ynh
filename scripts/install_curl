@@ -84,11 +84,12 @@ sudo yunohost app ssowatconf
 #curl -k -X POST \
 #-H "Host: $domain" \
 #--data-urlencode "submit=Proceed%20to%20next%20step" \
-#"https://127.0.0.1$path/install/index.php?mode=install" > /dev/null 2>&1
+#"https://127.0.0.1$path/install/index.php?mode=install&sub=requirements" > /dev/null 2>&1
 
 #echo -e "\n Requirements";
 sudo curl -k -X POST \
 -H "Host: $domain" \
+--data-urlencode "img_imagick=/usr/bin" \
 --data-urlencode "submit=Start%20install" \
 "https://$domain$path/install/index.php?mode=install&sub=requirements" > /dev/null 2>&1
 
