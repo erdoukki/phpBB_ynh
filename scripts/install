@@ -88,13 +88,13 @@ then
 
 # Configuration of phpBB
 
-#echo -e "\n Requirements";
+#echo -e "\n 1 - Requirements";
 sudo curl -kL -H "Host: $domain" -X POST "https://$domain$path/install/index.php?mode=install&sub=requirements" \
 --data "img_imagick=/usr/bin" \
 --data "submit=Start install" \
 > /dev/null 2>&1
 
-#echo -e "\n database";
+#echo -e "\n 2 - database";
 sudo curl -kL -H "Host: $domain" -X POST "https://127.0.0.1/$path/install/index.php?mode=install&sub=database" \
 --data "img_imagick=/usr/bin" \
 --data "language=en" \
@@ -109,10 +109,11 @@ sudo curl -kL -H "Host: $domain" -X POST "https://127.0.0.1/$path/install/index.
 --data "submit=Proceed to next step" \
 > /dev/null 2>&1
 
-#echo -e "\n admin";
+#echo -e "\n 3 - admin";
 sudo curl -kL -H "Host: $domain" -X POST "https://127.0.0.1/$path/install/index.php?mode=install&sub=administrator" \
 --data "img_imagick=/usr/bin" \
 --data "default_lang=$lang" \
+--data "check=false" \
 --data "admin_name=$admin_login" \
 --data "admin_pass1=$admin_pwd" \
 --data "admin_pass2=$admin_pwd" \
@@ -129,7 +130,7 @@ sudo curl -kL -H "Host: $domain" -X POST "https://127.0.0.1/$path/install/index.
 --data "submit=Proceed to next step" \
 > /dev/null 2>&1
 
-#echo -e "\n config_file";
+#echo -e "\n 4 - config_file";
 sudo curl -kL -H "Host: $domain" -X POST "https://127.0.0.1/$path/install/index.php?mode=install&sub=config_file" \
 --data "img_imagick=/usr/bin" \
 --data "language=en" \
@@ -148,7 +149,7 @@ sudo curl -kL -H "Host: $domain" -X POST "https://127.0.0.1/$path/install/index.
 --data "submit=Proceed to next step" \
 > /dev/null 2>&1
 
-#echo -e "\n advanced";
+#echo -e "\n 5 - advanced";
 sudo curl -kL -H "Host: $domain" -X POST "https://127.0.0.1/$path/install/index.php?mode=install&sub=advanced" \
 --data "email_enable=1" \
 --data "smtp_delivery=0" \
@@ -179,7 +180,7 @@ sudo curl -kL -H "Host: $domain" -X POST "https://127.0.0.1/$path/install/index.
 --data "submit=Proceed to next step" \
 > /dev/null 2>&1
 
-#echo -e "\n create database";
+#echo -e "\n 6 - create database";
 sudo curl -kL -H "Host: $domain" -X POST "https://127.0.0.1/$path/install/index.php?mode=install&sub=create_table" \
 --data "language=en" \
 --data "dbms=mysqli" \
