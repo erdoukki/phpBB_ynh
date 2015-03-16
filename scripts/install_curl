@@ -222,3 +222,7 @@ sudo chmod 644 $final_path/config.php
 
 # We need to rename the install folder
 sudo mv $final_path/install $final_path/install_old
+sudo chmod 777 $final_path/store
+sudo chmod 777 $final_path/cache
+sudo chmod 777 $final_path/files
+sudo chmod 777 $final_path/images/avatars/upload
