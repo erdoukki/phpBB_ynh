@@ -44,7 +44,7 @@ fi
 # Set permissions to working directory
 sudo chown -R www-data:www-data $final_path
 
-# Special adjustements for phpBB installation (according to documentation)
+# Special adjustements for phpBB BEFORE installation (according to documentation)
 sudo chmod 666 $final_path/config.php
 sudo chmod 777 $final_path/store
 sudo chmod 777 $final_path/cache
@@ -80,17 +80,13 @@ sudo service php5-fpm reload
 sudo service nginx reload
 sudo yunohost app ssowatconf
 
-# Make app public if necessary
-sudo yunohost app setting $app is_public -v "$curl_inst"
+# Use cURL for automatic configuration [BROKEN - TO BE FIXED]
 if [ "$curl_inst" = "Yes" ];
 then
 
+###### BEGINNING OF IF ########################
+
 # Configuration of phpBB
-#echo -e "\n Initial checks";
-#curl -kL -H "Host: $domain" -X POST "https://127.0.0.1/$path/install/index.php?mode=install&sub=" \ -X POST \
-#-H "Host: $domain" \
-#--data "submit=Proceed to next step" \
-#"https://127.0.0.1$path/install/index.php?mode=install&sub=requirements" > /dev/null 2>&1
 
 #echo -e "\n Requirements";
 sudo curl -kL -H "Host: $domain" -X POST "https://$domain$path/install/index.php?mode=install&sub=requirements" \
@@ -220,9 +216,15 @@ sudo curl -kL -H "Host: $domain" -X POST "https://127.0.0.1/$path/install/index.
 # We need to rename the install folder
 sudo mv $final_path/install $final_path/install_old
 
+###### END OF IF ########################
+
+
 fi;
 
-# Special adjustements after installation (according to documentation)
+
+
+
+# Special adjustements of phpBB AFTER installation (according to documentation)
 sudo chmod 644 $final_path/config.php
 
 sudo chmod 777 $final_path/store
