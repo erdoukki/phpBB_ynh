@@ -12,6 +12,8 @@ admin_email=$6
 lang=$7
 curl_inst=$8
 
+# Removal of trailing /
+path=${path%/}
 
 # Check domain/path availability
 sudo yunohost app checkurl $domain$path -a $app
