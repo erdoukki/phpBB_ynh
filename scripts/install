@@ -12,7 +12,7 @@ admin_email=$6
 lang=$7
 curl_inst=$8
 
-sudo yunohost app setting $app domain -v $domain
+#sudo yunohost app setting $app domain -v $domain
 
 # Removal of trailing /
 path=${path%/}
