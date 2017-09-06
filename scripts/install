@@ -2,7 +2,7 @@
 
 app=phpBB
 
-# Retrieve arguments
+# Retrieve argument
 domain=$1
 path=$2
 is_public=$3
