@@ -230,7 +230,7 @@ class manager
 	*/
 	public function update_profile_field_data($user_id, $cp_data)
 	{
-		if (!sizeof($cp_data))
+		if (!count($cp_data))
 		{
 			return;
 		}
@@ -258,7 +258,7 @@ class manager
 	*/
 	public function generate_profile_fields_template_headlines($restrict_option = '')
 	{
-		if (!sizeof($this->profile_cache))
+		if (!count($this->profile_cache))
 		{
 			$this->build_cache();
 		}
@@ -276,11 +276,31 @@ class manager
 			$profile_field = $this->type_collection[$field_data['field_type']];
 
 			$tpl_fields[] = array(
+				'PROFILE_FIELD_IDENT'	=> $field_ident,
 				'PROFILE_FIELD_TYPE'	=> $field_data['field_type'],
 				'PROFILE_FIELD_NAME'	=> $profile_field->get_field_name($field_data['lang_name']),
 				'PROFILE_FIELD_EXPLAIN'	=> $this->user->lang($field_data['lang_explain']),
 			);
 		}
+
+		$profile_cache = $this->profile_cache;
+
+		/**
+		* Event to modify template headlines of the generated profile fields
+		*
+		* @event core.generate_profile_fields_template_headlines
+		* @var	string	restrict_option	Restrict the published fields to a certain profile field option
+		* @var	array	tpl_fields		Array with template data fields
+		* @var	array	profile_cache	A copy of the profile cache to make additional checks
+		* @since 3.1.6-RC1
+		*/
+		$vars = array(
+			'restrict_option',
+			'tpl_fields',
+			'profile_cache',
+		);
+		extract($this->dispatcher->trigger_event('core.generate_profile_fields_template_headlines', compact($vars)));
+		unset($profile_cache);
 
 		return $tpl_fields;
 	}
@@ -298,12 +318,12 @@ class manager
 			$user_ids = array($user_ids);
 		}
 
-		if (!sizeof($this->profile_cache))
+		if (!count($this->profile_cache))
 		{
 			$this->build_cache();
 		}
 
-		if (!sizeof($user_ids))
+		if (!count($user_ids))
 		{
 			return array();
 		}
@@ -466,7 +486,7 @@ class manager
 		$sql = 'SELECT f.field_type, f.field_ident, f.field_default_value, l.lang_default_value
 			FROM ' . $this->fields_language_table . ' l, ' . $this->fields_table . ' f
 			WHERE l.lang_id = ' . $this->user->get_iso_lang_id() . '
-				' . ((sizeof($sql_not_in)) ? ' AND ' . $this->db->sql_in_set('f.field_ident', $sql_not_in, true) : '') . '
+				' . ((count($sql_not_in)) ? ' AND ' . $this->db->sql_in_set('f.field_ident', $sql_not_in, true) : '') . '
 				AND l.field_id = f.field_id';
 		$result = $this->db->sql_query($sql);
 

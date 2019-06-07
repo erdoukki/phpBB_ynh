@@ -14,10 +14,9 @@
 
 namespace phpbb\template\twig\node;
 
-
 class definenode extends \Twig_Node
 {
-	public function __construct($capture, \Twig_NodeInterface $name, \Twig_NodeInterface $value, $lineno, $tag = null)
+	public function __construct($capture, \Twig_Node $name, \Twig_Node $value, $lineno, $tag = null)
 	{
 		parent::__construct(array('name' => $name, 'value' => $value), array('capture' => $capture, 'safe' => false), $lineno, $tag);
 	}
@@ -31,7 +30,8 @@ class definenode extends \Twig_Node
 	{
 		$compiler->addDebugInfo($this);
 
-		if ($this->getAttribute('capture')) {
+		if ($this->getAttribute('capture'))
+		{
 			$compiler
 				->write("ob_start();\n")
 				->subcompile($this->getNode('value'))

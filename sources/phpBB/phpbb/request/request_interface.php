@@ -54,7 +54,7 @@ interface request_interface
 	* 										then specifying array("var", 1) as the name will return "a".
 	* @param	mixed			$default	A default value that is returned if the variable was not set.
 	* 										This function will always return a value of the same type as the default.
-	* @param	bool			$multibyte	If $default is a string this paramater has to be true if the variable may contain any UTF-8 characters
+	* @param	bool			$multibyte	If $default is a string this parameter has to be true if the variable may contain any UTF-8 characters
 	*										Default is false, causing all bytes outside the ASCII range (0-127) to be replaced with question marks
 	* @param	\phpbb\request\request_interface::POST|GET|REQUEST|COOKIE	$super_global
 	* 										Specifies which super global should be used
@@ -63,6 +63,28 @@ interface request_interface
 	*					the same as that of $default. If the variable is not set $default is returned.
 	*/
 	public function variable($var_name, $default, $multibyte = false, $super_global = \phpbb\request\request_interface::REQUEST);
+
+	/**
+	 * Get a variable without trimming strings and without escaping.
+	 * This method MUST NOT be used with queries.
+	 * Same functionality as variable(), except does not run trim() on strings
+	 * and does not escape input.
+	 * This method should only be used when the raw input is needed without
+	 * any escaping, i.e. for database password during the installation.
+	 *
+	 * @param	string|array	$var_name	The form variable's name from which data shall be retrieved.
+	 * 										If the value is an array this may be an array of indizes which will give
+	 * 										direct access to a value at any depth. E.g. if the value of "var" is array(1 => "a")
+	 * 										then specifying array("var", 1) as the name will return "a".
+	 * @param	mixed			$default	A default value that is returned if the variable was not set.
+	 * 										This function will always return a value of the same type as the default.
+	 * @param	\phpbb\request\request_interface::POST|GET|REQUEST|COOKIE	$super_global
+	 * 										Specifies which super global should be used
+	 *
+	 * @return	mixed	The value of $_REQUEST[$var_name] run through {@link set_var set_var} to ensure that the type is the
+	 *					the same as that of $default. If the variable is not set $default is returned.
+	 */
+	public function raw_variable($var_name, $default, $super_global = \phpbb\request\request_interface::REQUEST);
 
 	/**
 	* Shortcut method to retrieve SERVER variables.

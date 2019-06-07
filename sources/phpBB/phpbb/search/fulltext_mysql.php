@@ -43,6 +43,12 @@ class fulltext_mysql extends \phpbb\search\base
 	protected $db;
 
 	/**
+	 * phpBB event dispatcher object
+	 * @var \phpbb\event\dispatcher_interface
+	 */
+	protected $phpbb_dispatcher;
+
+	/**
 	 * User object
 	 * @var \phpbb\user
 	 */
@@ -79,11 +85,13 @@ class fulltext_mysql extends \phpbb\search\base
 	 * @param \phpbb\config\config $config Config object
 	 * @param \phpbb\db\driver\driver_interface Database object
 	 * @param \phpbb\user $user User object
+	 * @param \phpbb\event\dispatcher_interface	$phpbb_dispatcher	Event dispatcher object
 	 */
-	public function __construct(&$error, $phpbb_root_path, $phpEx, $auth, $config, $db, $user)
+	public function __construct(&$error, $phpbb_root_path, $phpEx, $auth, $config, $db, $user, $phpbb_dispatcher)
 	{
 		$this->config = $config;
 		$this->db = $db;
+		$this->phpbb_dispatcher = $phpbb_dispatcher;
 		$this->user = $user;
 
 		$this->word_length = array('min' => $this->config['fulltext_mysql_min_word_len'], 'max' => $this->config['fulltext_mysql_max_word_len']);
@@ -142,7 +150,7 @@ class fulltext_mysql extends \phpbb\search\base
 	/**
 	* Checks for correct MySQL version and stores min/max word length in the config
 	*
-	* @return string|bool Language key of the error/incompatiblity occurred
+	* @return string|bool Language key of the error/incompatibility occurred
 	*/
 	public function init()
 	{
@@ -169,8 +177,10 @@ class fulltext_mysql extends \phpbb\search\base
 			$engine === 'MyISAM' ||
 			// FULLTEXT is supported on InnoDB since MySQL 5.6.4 according to
 			// http://dev.mysql.com/doc/refman/5.6/en/innodb-storage-engine.html
+			// We also require https://bugs.mysql.com/bug.php?id=67004 to be
+			// fixed for proper overall operation. Hence we require 5.6.8.
 			$engine === 'InnoDB' &&
-			phpbb_version_compare($this->db->sql_server_info(true), '5.6.4', '>=');
+			phpbb_version_compare($this->db->sql_server_info(true), '5.6.8', '>=');
 
 		if (!$fulltext_supported)
 		{
@@ -188,8 +198,8 @@ class fulltext_mysql extends \phpbb\search\base
 		}
 		$this->db->sql_freeresult($result);
 
-		set_config('fulltext_mysql_max_word_len', $mysql_info['ft_max_word_len']);
-		set_config('fulltext_mysql_min_word_len', $mysql_info['ft_min_word_len']);
+		$this->config->set('fulltext_mysql_max_word_len', $mysql_info['ft_max_word_len']);
+		$this->config->set('fulltext_mysql_min_word_len', $mysql_info['ft_min_word_len']);
 
 		return false;
 	}
@@ -222,9 +232,9 @@ class fulltext_mysql extends \phpbb\search\base
 		$this->split_words = $matches[1];
 
 		// We limit the number of allowed keywords to minimize load on the database
-		if ($this->config['max_num_search_keywords'] && sizeof($this->split_words) > $this->config['max_num_search_keywords'])
+		if ($this->config['max_num_search_keywords'] && count($this->split_words) > $this->config['max_num_search_keywords'])
 		{
-			trigger_error($this->user->lang('MAX_NUM_SEARCH_KEYWORDS_REFINE', (int) $this->config['max_num_search_keywords'], sizeof($this->split_words)));
+			trigger_error($this->user->lang('MAX_NUM_SEARCH_KEYWORDS_REFINE', (int) $this->config['max_num_search_keywords'], count($this->split_words)));
 		}
 
 		// to allow phrase search, we need to concatenate quoted words
@@ -262,6 +272,27 @@ class fulltext_mysql extends \phpbb\search\base
 
 		foreach ($this->split_words as $i => $word)
 		{
+			// Check for not allowed search queries for InnoDB.
+			// We assume similar restrictions for MyISAM, which is usually even
+			// slower but not as restrictive as InnoDB.
+			// InnoDB full-text search does not support the use of a leading
+			// plus sign with wildcard ('+*'), a plus and minus sign
+			// combination ('+-'), or leading a plus and minus sign combination.
+			// InnoDB full-text search only supports leading plus or minus signs.
+			// For example, InnoDB supports '+apple' but does not support 'apple+'.
+			// Specifying a trailing plus or minus sign causes InnoDB to report
+			// a syntax error. InnoDB full-text search does not support the use
+			// of multiple operators on a single search word, as in this example:
+			// '++apple'. Use of multiple operators on a single search word
+			// returns a syntax error to standard out.
+			// Also, ensure that the wildcard character is only used at the
+			// end of the line as it's intended by MySQL.
+			if (preg_match('#^(\+[+-]|\+\*|.+[+-]$|.+\*(?!$))#', $word))
+			{
+				unset($this->split_words[$i]);
+				continue;
+			}
+
 			$clean_word = preg_replace('#^[+\-|"]#', '', $word);
 
 			// check word length
@@ -330,7 +361,7 @@ class fulltext_mysql extends \phpbb\search\base
 
 		// remove too short or too long words
 		$text = array_values($text);
-		for ($i = 0, $n = sizeof($text); $i < $n; $i++)
+		for ($i = 0, $n = count($text); $i < $n; $i++)
 		{
 			$text[$i] = trim($text[$i]);
 			if (utf8_strlen($text[$i]) < $this->config['fulltext_mysql_min_word_len'] || utf8_strlen($text[$i]) > $this->config['fulltext_mysql_max_word_len'])
@@ -371,7 +402,7 @@ class fulltext_mysql extends \phpbb\search\base
 		}
 
 		// generate a search_key from all the options to identify the results
-		$search_key = md5(implode('#', array(
+		$search_key_array = array(
 			implode(', ', $this->split_words),
 			$type,
 			$fields,
@@ -382,7 +413,39 @@ class fulltext_mysql extends \phpbb\search\base
 			implode(',', $ex_fid_ary),
 			$post_visibility,
 			implode(',', $author_ary)
-		)));
+		);
+
+		/**
+		* Allow changing the search_key for cached results
+		*
+		* @event core.search_mysql_by_keyword_modify_search_key
+		* @var	array	search_key_array	Array with search parameters to generate the search_key
+		* @var	string	type				Searching type ('posts', 'topics')
+		* @var	string	fields				Searching fields ('titleonly', 'msgonly', 'firstpost', 'all')
+		* @var	string	terms				Searching terms ('all', 'any')
+		* @var	int		sort_days			Time, in days, of the oldest possible post to list
+		* @var	string	sort_key			The sort type used from the possible sort types
+		* @var	int		topic_id			Limit the search to this topic_id only
+		* @var	array	ex_fid_ary			Which forums not to search on
+		* @var	string	post_visibility		Post visibility data
+		* @var	array	author_ary			Array of user_id containing the users to filter the results to
+		* @since 3.1.7-RC1
+		*/
+		$vars = array(
+			'search_key_array',
+			'type',
+			'fields',
+			'terms',
+			'sort_days',
+			'sort_key',
+			'topic_id',
+			'ex_fid_ary',
+			'post_visibility',
+			'author_ary',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.search_mysql_by_keyword_modify_search_key', compact($vars)));
+
+		$search_key = md5(implode('#', $search_key_array));
 
 		if ($start < 0)
 		{
@@ -447,16 +510,65 @@ class fulltext_mysql extends \phpbb\search\base
 			break;
 		}
 
+		$search_query = $this->search_query;
+
+		/**
+		* Allow changing the query used to search for posts using fulltext_mysql
+		*
+		* @event core.search_mysql_keywords_main_query_before
+		* @var	string	search_query		The parsed keywords used for this search
+		* @var	int		result_count		The previous result count for the format of the query.
+		*									Set to 0 to force a re-count
+		* @var	bool	join_topic			Weather or not TOPICS_TABLE should be CROSS JOIN'ED
+		* @var	array	author_ary			Array of user_id containing the users to filter the results to
+		* @var	string	author_name			An extra username to search on (!empty(author_ary) must be true, to be relevant)
+		* @var	array	ex_fid_ary			Which forums not to search on
+		* @var	int		topic_id			Limit the search to this topic_id only
+		* @var	string	sql_sort_table		Extra tables to include in the SQL query.
+		*									Used in conjunction with sql_sort_join
+		* @var	string	sql_sort_join		SQL conditions to join all the tables used together.
+		*									Used in conjunction with sql_sort_table
+		* @var	int		sort_days			Time, in days, of the oldest possible post to list
+		* @var	string	sql_match			Which columns to do the search on.
+		* @var	string	sql_match_where		Extra conditions to use to properly filter the matching process
+		* @var	string	sort_by_sql			The possible predefined sort types
+		* @var	string	sort_key			The sort type used from the possible sort types
+		* @var	string	sort_dir			"a" for ASC or "d" dor DESC for the sort order used
+		* @var	string	sql_sort			The result SQL when processing sort_by_sql + sort_key + sort_dir
+		* @var	int		start				How many posts to skip in the search results (used for pagination)
+		* @since 3.1.5-RC1
+		*/
+		$vars = array(
+			'search_query',
+			'result_count',
+			'join_topic',
+			'author_ary',
+			'author_name',
+			'ex_fid_ary',
+			'topic_id',
+			'sql_sort_table',
+			'sql_sort_join',
+			'sort_days',
+			'sql_match',
+			'sql_match_where',
+			'sort_by_sql',
+			'sort_key',
+			'sort_dir',
+			'sql_sort',
+			'start',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.search_mysql_keywords_main_query_before', compact($vars)));
+
 		$sql_select			= (!$result_count) ? 'SQL_CALC_FOUND_ROWS ' : '';
 		$sql_select			= ($type == 'posts') ? $sql_select . 'p.post_id' : 'DISTINCT ' . $sql_select . 't.topic_id';
 		$sql_from			= ($join_topic) ? TOPICS_TABLE . ' t, ' : '';
 		$field				= ($type == 'posts') ? 'post_id' : 'topic_id';
-		if (sizeof($author_ary) && $author_name)
+		if (count($author_ary) && $author_name)
 		{
 			// first one matches post of registered users, second one guests and deleted users
 			$sql_author = ' AND (' . $this->db->sql_in_set('p.poster_id', array_diff($author_ary, array(ANONYMOUS)), false, true) . ' OR p.post_username ' . $author_name . ')';
 		}
-		else if (sizeof($author_ary))
+		else if (count($author_ary))
 		{
 			$sql_author = ' AND ' . $this->db->sql_in_set('p.poster_id', $author_ary);
 		}
@@ -468,7 +580,7 @@ class fulltext_mysql extends \phpbb\search\base
 		$sql_where_options = $sql_sort_join;
 		$sql_where_options .= ($topic_id) ? ' AND p.topic_id = ' . $topic_id : '';
 		$sql_where_options .= ($join_topic) ? ' AND t.topic_id = p.topic_id' : '';
-		$sql_where_options .= (sizeof($ex_fid_ary)) ? ' AND ' . $this->db->sql_in_set('p.forum_id', $ex_fid_ary, true) : '';
+		$sql_where_options .= (count($ex_fid_ary)) ? ' AND ' . $this->db->sql_in_set('p.forum_id', $ex_fid_ary, true) : '';
 		$sql_where_options .= ' AND ' . $post_visibility;
 		$sql_where_options .= $sql_author;
 		$sql_where_options .= ($sort_days) ? ' AND p.post_time >= ' . (time() - ($sort_days * 86400)) : '';
@@ -479,6 +591,7 @@ class fulltext_mysql extends \phpbb\search\base
 			WHERE MATCH ($sql_match) AGAINST ('" . $this->db->sql_escape(htmlspecialchars_decode($this->search_query)) . "' IN BOOLEAN MODE)
 				$sql_where_options
 			ORDER BY $sql_sort";
+		$this->db->sql_return_on_error(true);
 		$result = $this->db->sql_query_limit($sql, $this->config['search_block_size'], $start);
 
 		while ($row = $this->db->sql_fetchrow($result))
@@ -490,7 +603,7 @@ class fulltext_mysql extends \phpbb\search\base
 		$id_ary = array_unique($id_ary);
 
 		// if the total result count is not cached yet, retrieve it from the db
-		if (!$result_count)
+		if (!$result_count && count($id_ary))
 		{
 			$sql_found_rows = 'SELECT FOUND_ROWS() as result_count';
 			$result = $this->db->sql_query($sql_found_rows);
@@ -547,13 +660,13 @@ class fulltext_mysql extends \phpbb\search\base
 	public function author_search($type, $firstpost_only, $sort_by_sql, $sort_key, $sort_dir, $sort_days, $ex_fid_ary, $post_visibility, $topic_id, $author_ary, $author_name, &$id_ary, &$start, $per_page)
 	{
 		// No author? No posts
-		if (!sizeof($author_ary))
+		if (!count($author_ary))
 		{
 			return 0;
 		}
 
 		// generate a search_key from all the options to identify the results
-		$search_key = md5(implode('#', array(
+		$search_key_array = array(
 			'',
 			$type,
 			($firstpost_only) ? 'firstpost' : '',
@@ -566,7 +679,39 @@ class fulltext_mysql extends \phpbb\search\base
 			$post_visibility,
 			implode(',', $author_ary),
 			$author_name,
-		)));
+		);
+
+		/**
+		* Allow changing the search_key for cached results
+		*
+		* @event core.search_mysql_by_author_modify_search_key
+		* @var	array	search_key_array	Array with search parameters to generate the search_key
+		* @var	string	type				Searching type ('posts', 'topics')
+		* @var	boolean	firstpost_only		Flag indicating if only topic starting posts are considered
+		* @var	int		sort_days			Time, in days, of the oldest possible post to list
+		* @var	string	sort_key			The sort type used from the possible sort types
+		* @var	int		topic_id			Limit the search to this topic_id only
+		* @var	array	ex_fid_ary			Which forums not to search on
+		* @var	string	post_visibility		Post visibility data
+		* @var	array	author_ary			Array of user_id containing the users to filter the results to
+		* @var	string	author_name			The username to search on
+		* @since 3.1.7-RC1
+		*/
+		$vars = array(
+			'search_key_array',
+			'type',
+			'firstpost_only',
+			'sort_days',
+			'sort_key',
+			'topic_id',
+			'ex_fid_ary',
+			'post_visibility',
+			'author_ary',
+			'author_name',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.search_mysql_by_author_modify_search_key', compact($vars)));
+
+		$search_key = md5(implode('#', $search_key_array));
 
 		if ($start < 0)
 		{
@@ -592,7 +737,7 @@ class fulltext_mysql extends \phpbb\search\base
 		{
 			$sql_author = $this->db->sql_in_set('p.poster_id', $author_ary);
 		}
-		$sql_fora		= (sizeof($ex_fid_ary)) ? ' AND ' . $this->db->sql_in_set('p.forum_id', $ex_fid_ary, true) : '';
+		$sql_fora		= (count($ex_fid_ary)) ? ' AND ' . $this->db->sql_in_set('p.forum_id', $ex_fid_ary, true) : '';
 		$sql_topic_id	= ($topic_id) ? ' AND p.topic_id = ' . (int) $topic_id : '';
 		$sql_time		= ($sort_days) ? ' AND p.post_time >= ' . (time() - ($sort_days * 86400)) : '';
 		$sql_firstpost = ($firstpost_only) ? ' AND p.post_id = t.topic_first_post_id' : '';
@@ -619,6 +764,59 @@ class fulltext_mysql extends \phpbb\search\base
 		}
 
 		$m_approve_fid_sql = ' AND ' . $post_visibility;
+
+		/**
+		* Allow changing the query used to search for posts by author in fulltext_mysql
+		*
+		* @event core.search_mysql_author_query_before
+		* @var	int		result_count		The previous result count for the format of the query.
+		*									Set to 0 to force a re-count
+		* @var	string	sql_sort_table		CROSS JOIN'ed table to allow doing the sort chosen
+		* @var	string	sql_sort_join		Condition to define how to join the CROSS JOIN'ed table specifyed in sql_sort_table
+		* @var	string	type				Either "posts" or "topics" specifying the type of search being made
+		* @var	array	author_ary			Array of user_id containing the users to filter the results to
+		* @var	string	author_name			An extra username to search on
+		* @var	string	sql_author			SQL WHERE condition for the post author ids
+		* @var	int		topic_id			Limit the search to this topic_id only
+		* @var	string	sql_topic_id		SQL of topic_id
+		* @var	string	sort_by_sql			The possible predefined sort types
+		* @var	string	sort_key			The sort type used from the possible sort types
+		* @var	string	sort_dir			"a" for ASC or "d" dor DESC for the sort order used
+		* @var	string	sql_sort			The result SQL when processing sort_by_sql + sort_key + sort_dir
+		* @var	string	sort_days			Time, in days, that the oldest post showing can have
+		* @var	string	sql_time			The SQL to search on the time specifyed by sort_days
+		* @var	bool	firstpost_only		Wether or not to search only on the first post of the topics
+		* @var	string	sql_firstpost		The SQL with the conditions to join the tables when using firstpost_only
+		* @var	array	ex_fid_ary			Forum ids that must not be searched on
+		* @var	array	sql_fora			SQL query for ex_fid_ary
+		* @var	string	m_approve_fid_sql	WHERE clause condition on post_visibility restrictions
+		* @var	int		start				How many posts to skip in the search results (used for pagination)
+		* @since 3.1.5-RC1
+		*/
+		$vars = array(
+			'result_count',
+			'sql_sort_table',
+			'sql_sort_join',
+			'type',
+			'author_ary',
+			'author_name',
+			'sql_author',
+			'topic_id',
+			'sql_topic_id',
+			'sort_by_sql',
+			'sort_key',
+			'sort_dir',
+			'sql_sort',
+			'sort_days',
+			'sql_time',
+			'firstpost_only',
+			'sql_firstpost',
+			'ex_fid_ary',
+			'sql_fora',
+			'm_approve_fid_sql',
+			'start',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.search_mysql_author_query_before', compact($vars)));
 
 		// If the cache was completely empty count the results
 		$calc_results = ($result_count) ? '' : 'SQL_CALC_FOUND_ROWS ';
@@ -692,7 +890,7 @@ class fulltext_mysql extends \phpbb\search\base
 			$id_ary = array_unique($id_ary);
 		}
 
-		if (sizeof($id_ary))
+		if (count($id_ary))
 		{
 			$this->save_ids($search_key, '', $author_ary, $result_count, $id_ary, $start, $sort_dir);
 			$id_ary = array_slice($id_ary, 0, $per_page);
@@ -720,6 +918,34 @@ class fulltext_mysql extends \phpbb\search\base
 
 		$words = array_unique(array_merge($split_text, $split_title));
 
+		/**
+		* Event to modify method arguments and words before the MySQL search index is updated
+		*
+		* @event core.search_mysql_index_before
+		* @var string	mode				Contains the post mode: edit, post, reply, quote
+		* @var int		post_id				The id of the post which is modified/created
+		* @var string	message				New or updated post content
+		* @var string	subject				New or updated post subject
+		* @var int		poster_id			Post author's user id
+		* @var int		forum_id			The id of the forum in which the post is located
+		* @var array	words				List of words added to the index
+		* @var array	split_text			Array of words from the message
+		* @var array	split_title			Array of words from the title
+		* @since 3.2.3-RC1
+		*/
+		$vars = array(
+			'mode',
+			'post_id',
+			'message',
+			'subject',
+			'poster_id',
+			'forum_id',
+			'words',
+			'split_text',
+			'split_title',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.search_mysql_index_before', compact($vars)));
+
 		unset($split_text);
 		unset($split_title);
 
@@ -745,7 +971,7 @@ class fulltext_mysql extends \phpbb\search\base
 		// destroy too old cached search results
 		$this->destroy_cache(array());
 
-		set_config('search_last_gc', time(), true);
+		$this->config->set('search_last_gc', time(), false);
 	}
 
 	/**
@@ -766,38 +992,70 @@ class fulltext_mysql extends \phpbb\search\base
 			$this->get_stats();
 		}
 
-		$alter = array();
+		$alter_list = array();
 
 		if (!isset($this->stats['post_subject']))
 		{
+			$alter_entry = array();
 			if ($this->db->get_sql_layer() == 'mysqli' || version_compare($this->db->sql_server_info(true), '4.1.3', '>='))
 			{
-				$alter[] = 'MODIFY post_subject varchar(255) COLLATE utf8_unicode_ci DEFAULT \'\' NOT NULL';
+				$alter_entry[] = 'MODIFY post_subject varchar(255) COLLATE utf8_unicode_ci DEFAULT \'\' NOT NULL';
 			}
 			else
 			{
-				$alter[] = 'MODIFY post_subject text NOT NULL';
+				$alter_entry[] = 'MODIFY post_subject text NOT NULL';
 			}
-			$alter[] = 'ADD FULLTEXT (post_subject)';
+			$alter_entry[] = 'ADD FULLTEXT (post_subject)';
+			$alter_list[] = $alter_entry;
 		}
 
 		if (!isset($this->stats['post_content']))
 		{
+			$alter_entry = array();
 			if ($this->db->get_sql_layer() == 'mysqli' || version_compare($this->db->sql_server_info(true), '4.1.3', '>='))
 			{
-				$alter[] = 'MODIFY post_text mediumtext COLLATE utf8_unicode_ci NOT NULL';
+				$alter_entry[] = 'MODIFY post_text mediumtext COLLATE utf8_unicode_ci NOT NULL';
 			}
 			else
 			{
-				$alter[] = 'MODIFY post_text mediumtext NOT NULL';
+				$alter_entry[] = 'MODIFY post_text mediumtext NOT NULL';
 			}
 
-			$alter[] = 'ADD FULLTEXT post_content (post_text, post_subject)';
+			$alter_entry[] = 'ADD FULLTEXT post_content (post_text, post_subject)';
+			$alter_list[] = $alter_entry;
 		}
 
-		if (sizeof($alter))
+		$sql_queries = [];
+
+		foreach ($alter_list as $alter)
 		{
-			$this->db->sql_query('ALTER TABLE ' . POSTS_TABLE . ' ' . implode(', ', $alter));
+			$sql_queries[] = 'ALTER TABLE ' . POSTS_TABLE . ' ' . implode(', ', $alter);
+		}
+
+		if (!isset($this->stats['post_text']))
+		{
+			$sql_queries[] = 'ALTER TABLE ' . POSTS_TABLE . ' ADD FULLTEXT post_text (post_text)';
+		}
+
+		$stats = $this->stats;
+
+		/**
+		* Event to modify SQL queries before the MySQL search index is created
+		*
+		* @event core.search_mysql_create_index_before
+		* @var array	sql_queries			Array with queries for creating the search index
+		* @var array	stats				Array with statistics of the current index (read only)
+		* @since 3.2.3-RC1
+		*/
+		$vars = array(
+			'sql_queries',
+			'stats',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.search_mysql_create_index_before', compact($vars)));
+
+		foreach ($sql_queries as $sql_query)
+		{
+			$this->db->sql_query($sql_query);
 		}
 
 		$this->db->sql_query('TRUNCATE TABLE ' . SEARCH_RESULTS_TABLE);
@@ -835,9 +1093,37 @@ class fulltext_mysql extends \phpbb\search\base
 			$alter[] = 'DROP INDEX post_content';
 		}
 
-		if (sizeof($alter))
+		if (isset($this->stats['post_text']))
 		{
-			$this->db->sql_query('ALTER TABLE ' . POSTS_TABLE . ' ' . implode(', ', $alter));
+			$alter[] = 'DROP INDEX post_text';
+		}
+
+		$sql_queries = [];
+
+		if (count($alter))
+		{
+			$sql_queries[] = 'ALTER TABLE ' . POSTS_TABLE . ' ' . implode(', ', $alter);
+		}
+
+		$stats = $this->stats;
+
+		/**
+		* Event to modify SQL queries before the MySQL search index is deleted
+		*
+		* @event core.search_mysql_delete_index_before
+		* @var array	sql_queries			Array with queries for deleting the search index
+		* @var array	stats				Array with statistics of the current index (read only)
+		* @since 3.2.3-RC1
+		*/
+		$vars = array(
+			'sql_queries',
+			'stats',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.search_mysql_delete_index_before', compact($vars)));
+
+		foreach ($sql_queries as $sql_query)
+		{
+			$this->db->sql_query($sql_query);
 		}
 
 		$this->db->sql_query('TRUNCATE TABLE ' . SEARCH_RESULTS_TABLE);
@@ -855,7 +1141,7 @@ class fulltext_mysql extends \phpbb\search\base
 			$this->get_stats();
 		}
 
-		return isset($this->stats['post_subject']) && isset($this->stats['post_content']);
+		return isset($this->stats['post_subject']) && isset($this->stats['post_content']) && isset($this->stats['post_text']);
 	}
 
 	/**
@@ -898,6 +1184,10 @@ class fulltext_mysql extends \phpbb\search\base
 				if ($row['Key_name'] == 'post_subject')
 				{
 					$this->stats['post_subject'] = $row;
+				}
+				else if ($row['Key_name'] == 'post_text')
+				{
+					$this->stats['post_text'] = $row;
 				}
 				else if ($row['Key_name'] == 'post_content')
 				{

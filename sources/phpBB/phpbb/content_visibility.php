@@ -45,7 +45,7 @@ class content_visibility
 
 	/**
 	* Event dispatcher object
-	* @var \phpbb\event\dispatcher
+	* @var \phpbb\event\dispatcher_interface
 	*/
 	protected $phpbb_dispatcher;
 
@@ -66,7 +66,7 @@ class content_visibility
 	*
 	* @param	\phpbb\auth\auth		$auth	Auth object
 	* @param	\phpbb\config\config	$config	Config object
-	* @param	\phpbb\event\dispatcher	$phpbb_dispatcher	Event dispatcher object
+	* @param	\phpbb\event\dispatcher_interface	$phpbb_dispatcher	Event dispatcher object
 	* @param	\phpbb\db\driver\driver_interface	$db		Database object
 	* @param	\phpbb\user		$user			User object
 	* @param	string		$phpbb_root_path	Root path
@@ -76,7 +76,7 @@ class content_visibility
 	* @param	string		$topics_table		Topics table name
 	* @param	string		$users_table		Users table name
 	*/
-	public function __construct(\phpbb\auth\auth $auth, \phpbb\config\config $config, \phpbb\event\dispatcher $phpbb_dispatcher, \phpbb\db\driver\driver_interface $db, \phpbb\user $user, $phpbb_root_path, $php_ext, $forums_table, $posts_table, $topics_table, $users_table)
+	public function __construct(\phpbb\auth\auth $auth, \phpbb\config\config $config, \phpbb\event\dispatcher_interface $phpbb_dispatcher, \phpbb\db\driver\driver_interface $db, \phpbb\user $user, $phpbb_root_path, $php_ext, $forums_table, $posts_table, $topics_table, $users_table)
 	{
 		$this->auth = $auth;
 		$this->config = $config;
@@ -131,6 +131,42 @@ class content_visibility
 		return (int) $data[$mode . '_approved'] + (int) $data[$mode . '_unapproved'] + (int) $data[$mode . '_softdeleted'];
 	}
 
+
+	/**
+	* Check topic/post visibility for a given forum ID
+	*
+	* Note: Read permissions are not checked.
+	*
+	* @param $mode		string	Either "topic" or "post"
+	* @param $forum_id	int		The forum id is used for permission checks
+	* @param $data		array	Array with item information to check visibility
+	* @return bool		True if the item is visible, false if not
+	*/
+	public function is_visible($mode, $forum_id, $data)
+	{
+		$is_visible = $this->auth->acl_get('m_approve', $forum_id) || $data[$mode . '_visibility'] == ITEM_APPROVED;
+
+		/**
+		* Allow changing the result of calling is_visible
+		*
+		* @event core.phpbb_content_visibility_is_visible
+		* @var	bool		is_visible			Default visibility condition, to be modified by extensions if needed.
+		* @var	string		mode				Either "topic" or "post"
+		* @var	int			forum_id			Forum id of the current item
+		* @var	array		data				Array of item information
+		* @since 3.2.2-RC1
+		*/
+		$vars = array(
+			'is_visible',
+			'mode',
+			'forum_id',
+			'data',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.phpbb_content_visibility_is_visible', compact($vars)));
+
+		return $is_visible;
+	}
+
 	/**
 	* Create topic/post visibility SQL for a given forum ID
 	*
@@ -143,12 +179,47 @@ class content_visibility
 	*/
 	public function get_visibility_sql($mode, $forum_id, $table_alias = '')
 	{
-		if ($this->auth->acl_get('m_approve', $forum_id))
+		$where_sql = '';
+
+		$get_visibility_sql_overwrite = false;
+
+		/**
+		* Allow changing the result of calling get_visibility_sql
+		*
+		* @event core.phpbb_content_visibility_get_visibility_sql_before
+		* @var	string		where_sql						Extra visibility conditions. It must end with either an SQL "AND" or an "OR"
+		* @var	string		mode							Either "topic" or "post" depending on the query this is being used in
+		* @var	array		forum_id						The forum id in which the search is made.
+		* @var	string		table_alias						Table alias to prefix in SQL queries
+		* @var	mixed		get_visibility_sql_overwrite	If a string, forces the function to return get_forums_visibility_sql_overwrite after executing the event
+		* 													If false, get_visibility_sql continues normally
+		* 													It must be either boolean or string
+		* @since 3.1.4-RC1
+		*/
+		$vars = array(
+			'where_sql',
+			'mode',
+			'forum_id',
+			'table_alias',
+			'get_visibility_sql_overwrite',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.phpbb_content_visibility_get_visibility_sql_before', compact($vars)));
+
+		if ($get_visibility_sql_overwrite !== false)
 		{
-			return '1 = 1';
+			return $get_visibility_sql_overwrite;
 		}
 
-		return $table_alias . $mode . '_visibility = ' . ITEM_APPROVED;
+		if ($this->auth->acl_get('m_approve', $forum_id))
+		{
+			$where_sql .= '1 = 1';
+		}
+		else
+		{
+			$where_sql .= $table_alias . $mode . '_visibility = ' . ITEM_APPROVED;
+		}
+
+		return '(' . $where_sql . ')';
 	}
 
 	/**
@@ -164,16 +235,21 @@ class content_visibility
 	*/
 	public function get_forums_visibility_sql($mode, $forum_ids = array(), $table_alias = '')
 	{
-		$where_sql = '(';
+		$where_sql = '';
 
-		$approve_forums = array_intersect($forum_ids, array_keys($this->auth->acl_getf('m_approve', true)));
+		$approve_forums = array_keys($this->auth->acl_getf('m_approve', true));
+		if (!empty($forum_ids) && !empty($approve_forums))
+		{
+			$approve_forums = array_intersect($forum_ids, $approve_forums);
+			$forum_ids = array_diff($forum_ids, $approve_forums);
+		}
 
 		$get_forums_visibility_sql_overwrite = false;
 		/**
 		* Allow changing the result of calling get_forums_visibility_sql
 		*
 		* @event core.phpbb_content_visibility_get_forums_visibility_before
-		* @var	string		where_sql							The action the user tried to execute
+		* @var	string		where_sql							Extra visibility conditions. It must end with either an SQL "AND" or an "OR"
 		* @var	string		mode								Either "topic" or "post" depending on the query this is being used in
 		* @var	array		forum_ids							Array of forum ids which the posts/topics are limited to
 		* @var	string		table_alias							Table alias to prefix in SQL queries
@@ -198,33 +274,13 @@ class content_visibility
 			return $get_forums_visibility_sql_overwrite;
 		}
 
-		if (sizeof($approve_forums))
-		{
-			// Remove moderator forums from the rest
-			$forum_ids = array_diff($forum_ids, $approve_forums);
-
-			if (!sizeof($forum_ids))
-			{
-				// The user can see all posts/topics in all specified forums
-				return $this->db->sql_in_set($table_alias . 'forum_id', $approve_forums);
-			}
-			else
-			{
-				// Moderator can view all posts/topics in some forums
-				$where_sql .= $this->db->sql_in_set($table_alias . 'forum_id', $approve_forums) . ' OR ';
-			}
-		}
-		else
-		{
-			// The user is just a normal user
-			return $table_alias . $mode . '_visibility = ' . ITEM_APPROVED . '
-				AND ' . $this->db->sql_in_set($table_alias . 'forum_id', $forum_ids, false, true);
-		}
-
+		// Moderator can view all posts/topics in the moderated forums
+		$where_sql .= '(' . $this->db->sql_in_set($table_alias . 'forum_id', $approve_forums, false, true) . ' OR ';
+		// Normal user can view approved items only
 		$where_sql .= '(' . $table_alias . $mode . '_visibility = ' . ITEM_APPROVED . '
-			AND ' . $this->db->sql_in_set($table_alias . 'forum_id', $forum_ids) . '))';
+			AND ' . $this->db->sql_in_set($table_alias . 'forum_id', $forum_ids, false, true) . '))';
 
-		return $where_sql;
+		return '(' . $where_sql . ')';
 	}
 
 	/**
@@ -250,18 +306,18 @@ class content_visibility
 		* Allow changing the result of calling get_global_visibility_sql
 		*
 		* @event core.phpbb_content_visibility_get_global_visibility_before
-		* @var	array		where_sqls							The action the user tried to execute
+		* @var	array		where_sqls							Array of extra visibility conditions. Will be joined by imploding with "OR".
 		* @var	string		mode								Either "topic" or "post" depending on the query this is being used in
-		* @var	array		forum_ids							Array of forum ids which the posts/topics are limited to
+		* @var	array		exclude_forum_ids					Array of forum ids the current user doesn't have access to
 		* @var	string		table_alias							Table alias to prefix in SQL queries
 		* @var	array		approve_forums						Array of forums where the user has m_approve permissions
-		* @var	string		visibility_sql_overwrite	Forces the function to return an implosion of where_sqls (joined by "OR")
+		* @var	string		visibility_sql_overwrite			If not empty, forces the function to return visibility_sql_overwrite after executing the event
 		* @since 3.1.3-RC1
 		*/
 		$vars = array(
 			'where_sqls',
 			'mode',
-			'forum_ids',
+			'exclude_forum_ids',
 			'table_alias',
 			'approve_forums',
 			'visibility_sql_overwrite',
@@ -273,24 +329,17 @@ class content_visibility
 			return $visibility_sql_overwrite;
 		}
 
-		if (sizeof($exclude_forum_ids))
-		{
-			$where_sqls[] = '(' . $this->db->sql_in_set($table_alias . 'forum_id', $exclude_forum_ids, true) . '
-				AND ' . $table_alias . $mode . '_visibility = ' . ITEM_APPROVED . ')';
-		}
-		else
-		{
-			$where_sqls[] = $table_alias . $mode . '_visibility = ' . ITEM_APPROVED;
-		}
+		// Include approved items in all forums but the excluded
+		$where_sqls[] = '(' . $this->db->sql_in_set($table_alias . 'forum_id', $exclude_forum_ids, true, true) . '
+			AND ' . $table_alias . $mode . '_visibility = ' . ITEM_APPROVED . ')';
 
-		if (sizeof($approve_forums))
+		// If user has moderator permissions, add everything in the moderated forums
+		if (count($approve_forums))
 		{
 			$where_sqls[] = $this->db->sql_in_set($table_alias . 'forum_id', $approve_forums);
-			return '(' . implode(' OR ', $where_sqls) . ')';
 		}
 
-		// There is only one element, so we just return that one
-		return $where_sqls[0];
+		return '(' . implode(' OR ', $where_sqls) . ')';
 	}
 
 	/**
@@ -386,13 +435,47 @@ class content_visibility
 			return array();
 		}
 
+		if (!function_exists('truncate_string'))
+		{
+			include($this->phpbb_root_path . 'includes/functions_content.' . $this->php_ext);
+		}
+
 		$data = array(
 			'post_visibility'		=> (int) $visibility,
 			'post_delete_user'		=> (int) $user_id,
 			'post_delete_time'		=> ((int) $time) ?: time(),
 			'post_delete_reason'	=> truncate_string($reason, 255, 255, false),
 		);
-
+		/**
+		 * Perform actions right before the query to change post visibility
+		 *
+		 * @event core.set_post_visibility_before_sql
+		 * @var			int			visibility		Element of {ITEM_APPROVED, ITEM_DELETED, ITEM_REAPPROVE}
+		 * @var			array		post_id			Array containing all post IDs to be modified. If blank, all posts within the topic are modified.
+		 * @var			int			topic_id		Topic of the post IDs to be modified.
+		 * @var			int			forum_id		Forum ID that the topic_id resides in.
+		 * @var			int			user_id			User ID doing this action.
+		 * @var			int			time			Timestamp of this action.
+		 * @var			string		reason			Reason specified by the user for this change.
+		 * @var			bool		is_starter		Are we changing the topic's starter?
+		 * @var			bool		is_latest		Are we changing the topic's latest post?
+		 * @var			array		data			The data array for this action.
+		 * @since 3.1.10-RC1
+		 * @changed 3.2.2-RC1 Use time instead of non-existent timestamp
+		 */
+		$vars = array(
+			'visibility',
+			'post_id',
+			'topic_id',
+			'forum_id',
+			'user_id',
+			'time',
+			'reason',
+			'is_starter',
+			'is_latest',
+			'data',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.set_post_visibility_before_sql', compact($vars)));
 		$sql = 'UPDATE ' . $this->posts_table . '
 			SET ' . $this->db->sql_build_array('UPDATE', $data) . '
 			WHERE ' . $this->db->sql_in_set('post_id', $post_ids);
@@ -501,7 +584,7 @@ class content_visibility
 				$sql_ary[$recipient_field] = " + $count_increase";
 			}
 
-			if (sizeof($sql_ary))
+			if (count($sql_ary))
 			{
 				$forum_sql = array();
 
@@ -549,7 +632,36 @@ class content_visibility
 				WHERE topic_id = ' . (int) $topic_id;
 			$this->db->sql_query($sql);
 		}
-
+		/**
+		 * Perform actions after all steps to changing post visibility
+		 *
+		 * @event core.set_post_visibility_after
+		 * @var			int			visibility		Element of {ITEM_APPROVED, ITEM_DELETED, ITEM_REAPPROVE}
+		 * @var			array		post_id			Array containing all post IDs to be modified. If blank, all posts within the topic are modified.
+		 * @var			int			topic_id		Topic of the post IDs to be modified.
+		 * @var			int			forum_id		Forum ID that the topic_id resides in.
+		 * @var			int			user_id			User ID doing this action.
+		 * @var			int			time			Timestamp of this action.
+		 * @var			string		reason			Reason specified by the user for this change.
+		 * @var			bool		is_starter		Are we changing the topic's starter?
+		 * @var			bool		is_latest		Are we changing the topic's latest post?
+		 * @var			array		data			The data array for this action.
+		 * @since 3.1.10-RC1
+		 * @changed 3.2.2-RC1 Use time instead of non-existent timestamp
+		 */
+		$vars = array(
+			'visibility',
+			'post_id',
+			'topic_id',
+			'forum_id',
+			'user_id',
+			'time',
+			'reason',
+			'is_starter',
+			'is_latest',
+			'data',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.set_post_visibility_after', compact($vars)));
 		return $data;
 	}
 
@@ -572,7 +684,7 @@ class content_visibility
 	* @param $time			int		Timestamp when the action is performed
 	* @param $reason		string	Reason why the visibilty was changed.
 	* @param $force_update_all	bool	Force to update all posts within the topic
-	* @return array		Changed topic data, empty array if an error occured.
+	* @return array		Changed topic data, empty array if an error occurred.
 	*/
 	public function set_topic_visibility($visibility, $topic_id, $forum_id, $user_id, $time, $reason, $force_update_all = false)
 	{
@@ -597,6 +709,11 @@ class content_visibility
 			}
 		}
 
+		if (!function_exists('truncate_string'))
+		{
+			include($this->phpbb_root_path . 'includes/functions_content.' . $this->php_ext);
+		}
+
 		// Note, we do not set a reason for the posts, just for the topic
 		$data = array(
 			'topic_visibility'		=> (int) $visibility,
@@ -604,7 +721,32 @@ class content_visibility
 			'topic_delete_time'		=> ((int) $time) ?: time(),
 			'topic_delete_reason'	=> truncate_string($reason, 255, 255, false),
 		);
-
+		/**
+		 * Perform actions right before the query to change topic visibility
+		 *
+		 * @event core.set_topic_visibility_before_sql
+		 * @var			int			visibility			Element of {ITEM_APPROVED, ITEM_DELETED, ITEM_REAPPROVE}
+		 * @var			int			topic_id			Topic of the post IDs to be modified.
+		 * @var			int			forum_id			Forum ID that the topic_id resides in.
+		 * @var			int			user_id				User ID doing this action.
+		 * @var			int			time				Timestamp of this action.
+		 * @var			string		reason				Reason specified by the user for this change.
+		 * @var			bool		force_update_all	Force an update on all posts within the topic, regardless of their current approval state.
+		 * @var			array		data				The data array for this action.
+		 * @since 3.1.10-RC1
+		 * @changed 3.2.2-RC1 Use time instead of non-existent timestamp
+		 */
+		$vars = array(
+			'visibility',
+			'topic_id',
+			'forum_id',
+			'user_id',
+			'time',
+			'reason',
+			'force_update_all',
+			'data',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.set_topic_visibility_before_sql', compact($vars)));
 		$sql = 'UPDATE ' . $this->topics_table . '
 			SET ' . $this->db->sql_build_array('UPDATE', $data) . '
 			WHERE topic_id = ' . (int) $topic_id;
@@ -629,7 +771,32 @@ class content_visibility
 		{
 			$this->set_post_visibility($visibility, false, $topic_id, $forum_id, $user_id, $time, '', true, true);
 		}
-
+		/**
+		 * Perform actions after all steps to changing topic visibility
+		 *
+		 * @event core.set_topic_visibility_after
+		 * @var			int			visibility			Element of {ITEM_APPROVED, ITEM_DELETED, ITEM_REAPPROVE}
+		 * @var			int			topic_id			Topic of the post IDs to be modified.
+		 * @var			int			forum_id			Forum ID that the topic_id resides in.
+		 * @var			int			user_id				User ID doing this action.
+		 * @var			int			time				Timestamp of this action.
+		 * @var			string		reason				Reason specified by the user for this change.
+		 * @var			bool		force_update_all	Force an update on all posts within the topic, regardless of their current approval state.
+		 * @var			array		data				The data array for this action.
+		 * @since 3.1.10-RC1
+		 * @changed 3.2.2-RC1 Use time instead of non-existent timestamp
+		 */
+		$vars = array(
+			'visibility',
+			'topic_id',
+			'forum_id',
+			'user_id',
+			'time',
+			'reason',
+			'force_update_all',
+			'data',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.set_topic_visibility_after', compact($vars)));
 		return $data;
 	}
 

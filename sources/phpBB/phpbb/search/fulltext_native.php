@@ -18,6 +18,13 @@ namespace phpbb\search;
 */
 class fulltext_native extends \phpbb\search\base
 {
+	const UTF8_HANGUL_FIRST = "\xEA\xB0\x80";
+	const UTF8_HANGUL_LAST = "\xED\x9E\xA3";
+	const UTF8_CJK_FIRST = "\xE4\xB8\x80";
+	const UTF8_CJK_LAST = "\xE9\xBE\xBB";
+	const UTF8_CJK_B_FIRST = "\xF0\xA0\x80\x80";
+	const UTF8_CJK_B_LAST = "\xF0\xAA\x9B\x96";
+
 	/**
 	 * Associative array holding index stats
 	 * @var array
@@ -57,7 +64,7 @@ class fulltext_native extends \phpbb\search\base
 	protected $must_not_contain_ids = array();
 
 	/**
-	 * Post ids of posts containing atleast one word that needs to be excluded
+	 * Post ids of posts containing at least one word that needs to be excluded
 	 * @var array
 	 */
 	protected $must_exclude_one_ids = array();
@@ -87,33 +94,37 @@ class fulltext_native extends \phpbb\search\base
 	protected $db;
 
 	/**
+	 * phpBB event dispatcher object
+	 * @var \phpbb\event\dispatcher_interface
+	 */
+	protected $phpbb_dispatcher;
+
+	/**
 	 * User object
 	 * @var \phpbb\user
 	 */
 	protected $user;
 
 	/**
-	* Initialises the fulltext_native search backend with min/max word length and makes sure the UTF-8 normalizer is loaded
+	* Initialises the fulltext_native search backend with min/max word length
 	*
 	* @param	boolean|string	&$error	is passed by reference and should either be set to false on success or an error message on failure
+	* @param	\phpbb\event\dispatcher_interface	$phpbb_dispatcher	Event dispatcher object
 	*/
-	public function __construct(&$error, $phpbb_root_path, $phpEx, $auth, $config, $db, $user)
+	public function __construct(&$error, $phpbb_root_path, $phpEx, $auth, $config, $db, $user, $phpbb_dispatcher)
 	{
 		$this->phpbb_root_path = $phpbb_root_path;
 		$this->php_ext = $phpEx;
 		$this->config = $config;
 		$this->db = $db;
+		$this->phpbb_dispatcher = $phpbb_dispatcher;
 		$this->user = $user;
 
-		$this->word_length = array('min' => $this->config['fulltext_native_min_chars'], 'max' => $this->config['fulltext_native_max_chars']);
+		$this->word_length = array('min' => (int) $this->config['fulltext_native_min_chars'], 'max' => (int) $this->config['fulltext_native_max_chars']);
 
 		/**
 		* Load the UTF tools
 		*/
-		if (!class_exists('utf_normalizer'))
-		{
-			include($this->phpbb_root_path . 'includes/utf/utf_normalizer.' . $this->php_ext);
-		}
 		if (!function_exists('utf8_decode_ncr'))
 		{
 			include($this->phpbb_root_path . 'includes/utf/utf_tools.' . $this->php_ext);
@@ -179,7 +190,7 @@ class fulltext_native extends \phpbb\search\base
 	*/
 	public function split_keywords($keywords, $terms)
 	{
-		$tokens = '+-|()*';
+		$tokens = '+-|()* ';
 
 		$keywords = trim($this->cleanup($keywords, $tokens));
 
@@ -213,12 +224,10 @@ class fulltext_native extends \phpbb\search\base
 						$keywords[$i] = '|';
 					break;
 					case '*':
-						if ($i === 0 || ($keywords[$i - 1] !== '*' && strcspn($keywords[$i - 1], $tokens) === 0))
+						// $i can never be 0 here since $open_bracket is initialised to false
+						if (strpos($tokens, $keywords[$i - 1]) !== false && ($i + 1 === $n || strpos($tokens, $keywords[$i + 1]) !== false))
 						{
-							if ($i === $n - 1 || ($keywords[$i + 1] !== '*' && strcspn($keywords[$i + 1], $tokens) === 0))
-							{
-								$keywords = substr($keywords, 0, $i) . substr($keywords, $i + 1);
-							}
+							$keywords[$i] = '|';
 						}
 					break;
 				}
@@ -253,7 +262,7 @@ class fulltext_native extends \phpbb\search\base
 			}
 		}
 
-		if ($open_bracket)
+		if ($open_bracket !== false)
 		{
 			$keywords .= ')';
 		}
@@ -274,7 +283,7 @@ class fulltext_native extends \phpbb\search\base
 		);
 
 		$keywords = preg_replace($match, $replace, $keywords);
-		$num_keywords = sizeof(explode(' ', $keywords));
+		$num_keywords = count(explode(' ', $keywords));
 
 		// We limit the number of allowed keywords to minimize load on the database
 		if ($this->config['max_num_search_keywords'] && $num_keywords > $this->config['max_num_search_keywords'])
@@ -290,11 +299,25 @@ class fulltext_native extends \phpbb\search\base
 			$words = array();
 
 			preg_match_all('#([^\\s+\\-|()]+)(?:$|[\\s+\\-|()])#u', $keywords, $words);
-			if (sizeof($words[1]))
+			if (count($words[1]))
 			{
 				$keywords = '(' . implode('|', $words[1]) . ')';
 			}
 		}
+
+		// Remove non trailing wildcards from each word to prevent a full table scan (it's now using the database index)
+		$match = '#\*(?!$|\s)#';
+		$replace = '$1';
+		$keywords = preg_replace($match, $replace, $keywords);
+
+		// Only allow one wildcard in the search query to limit the database load
+		$match = '#\*#';
+		$replace = '$1';
+		$count_wildcards = substr_count($keywords, '*');
+
+		// Reverse the string to remove all wildcards except the first one
+		$keywords = strrev(preg_replace($match, $replace, strrev($keywords), $count_wildcards - 1));
+		unset($count_wildcards);
 
 		// set the search_query which is shown to the user
 		$this->search_query = $keywords;
@@ -305,7 +328,7 @@ class fulltext_native extends \phpbb\search\base
 
 		$common_ids = $words = array();
 
-		if (sizeof($exact_words))
+		if (count($exact_words))
 		{
 			$sql = 'SELECT word_id, word_text, word_common
 				FROM ' . SEARCH_WORDLIST_TABLE . '
@@ -328,7 +351,7 @@ class fulltext_native extends \phpbb\search\base
 			$this->db->sql_freeresult($result);
 		}
 
-		// Handle +, - without preceeding whitespace character
+		// Handle +, - without preceding whitespace character
 		$match		= array('#(\S)\+#', '#(\S)-#');
 		$replace	= array('$1 +', '$1 +');
 
@@ -340,9 +363,6 @@ class fulltext_native extends \phpbb\search\base
 		$this->must_contain_ids = array();
 		$this->must_not_contain_ids = array();
 		$this->must_exclude_one_ids = array();
-
-		$mode = '';
-		$ignore_no_id = true;
 
 		foreach ($query as $word)
 		{
@@ -401,8 +421,16 @@ class fulltext_native extends \phpbb\search\base
 				{
 					if (strpos($word_part, '*') !== false)
 					{
-						$id_words[] = '\'' . $this->db->sql_escape(str_replace('*', '%', $word_part)) . '\'';
-						$non_common_words[] = $word_part;
+						$len = utf8_strlen(str_replace('*', '', $word_part));
+						if ($len >= $this->word_length['min'] && $len <= $this->word_length['max'])
+						{
+							$id_words[] = '\'' . $this->db->sql_escape(str_replace('*', '%', $word_part)) . '\'';
+							$non_common_words[] = $word_part;
+						}
+						else
+						{
+							$this->common_words[] = $word_part;
+						}
 					}
 					else if (isset($words[$word_part]))
 					{
@@ -418,10 +446,10 @@ class fulltext_native extends \phpbb\search\base
 						}
 					}
 				}
-				if (sizeof($id_words))
+				if (count($id_words))
 				{
 					sort($id_words);
-					if (sizeof($id_words) > 1)
+					if (count($id_words) > 1)
 					{
 						$this->{$mode . '_ids'}[] = $id_words;
 					}
@@ -432,7 +460,7 @@ class fulltext_native extends \phpbb\search\base
 					}
 				}
 				// throw an error if we shall not ignore unexistant words
-				else if (!$ignore_no_id && sizeof($non_common_words))
+				else if (!$ignore_no_id && count($non_common_words))
 				{
 					trigger_error(sprintf($this->user->lang['WORDS_IN_NO_POST'], implode($this->user->lang['COMMA_SEPARATOR'], $non_common_words)));
 				}
@@ -472,7 +500,7 @@ class fulltext_native extends \phpbb\search\base
 		}
 
 		// Return true if all words are not common words
-		if (sizeof($exact_words) - sizeof($this->common_words) > 0)
+		if (count($exact_words) - count($this->common_words) > 0)
 		{
 			return true;
 		}
@@ -522,7 +550,7 @@ class fulltext_native extends \phpbb\search\base
 		sort($must_exclude_one_ids);
 
 		// generate a search_key from all the options to identify the results
-		$search_key = md5(implode('#', array(
+		$search_key_array = array(
 			serialize($must_contain_ids),
 			serialize($must_not_contain_ids),
 			serialize($must_exclude_one_ids),
@@ -536,7 +564,45 @@ class fulltext_native extends \phpbb\search\base
 			$post_visibility,
 			implode(',', $author_ary),
 			$author_name,
-		)));
+		);
+
+		/**
+		* Allow changing the search_key for cached results
+		*
+		* @event core.search_native_by_keyword_modify_search_key
+		* @var	array	search_key_array	Array with search parameters to generate the search_key
+		* @var	array	must_contain_ids	Array with post ids of posts containing words that are to be included
+		* @var	array	must_not_contain_ids	Array with post ids of posts containing words that should not be included
+		* @var	array	must_exclude_one_ids	Array with post ids of posts containing at least one word that needs to be excluded
+		* @var	string	type				Searching type ('posts', 'topics')
+		* @var	string	fields				Searching fields ('titleonly', 'msgonly', 'firstpost', 'all')
+		* @var	string	terms				Searching terms ('all', 'any')
+		* @var	int		sort_days			Time, in days, of the oldest possible post to list
+		* @var	string	sort_key			The sort type used from the possible sort types
+		* @var	int		topic_id			Limit the search to this topic_id only
+		* @var	array	ex_fid_ary			Which forums not to search on
+		* @var	string	post_visibility		Post visibility data
+		* @var	array	author_ary			Array of user_id containing the users to filter the results to
+		* @since 3.1.7-RC1
+		*/
+		$vars = array(
+			'search_key_array',
+			'must_contain_ids',
+			'must_not_contain_ids',
+			'must_exclude_one_ids',
+			'type',
+			'fields',
+			'terms',
+			'sort_days',
+			'sort_key',
+			'topic_id',
+			'ex_fid_ary',
+			'post_visibility',
+			'author_ary',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.search_native_by_keyword_modify_search_key', compact($vars)));
+
+		$search_key = md5(implode('#', $search_key_array));
 
 		// try reading the results from cache
 		$total_results = 0;
@@ -548,7 +614,6 @@ class fulltext_native extends \phpbb\search\base
 		$id_ary = array();
 
 		$sql_where = array();
-		$group_by = false;
 		$m_num = 0;
 		$w_num = 0;
 
@@ -671,7 +736,7 @@ class fulltext_native extends \phpbb\search\base
 			}
 		}
 
-		if (sizeof($this->must_not_contain_ids))
+		if (count($this->must_not_contain_ids))
 		{
 			$sql_array['LEFT_JOIN'][] = array(
 				'FROM'	=> array(SEARCH_WORDMATCH_TABLE => 'm' . $m_num),
@@ -712,12 +777,76 @@ class fulltext_native extends \phpbb\search\base
 
 		$sql_where[] = $post_visibility;
 
+		$search_query = $this->search_query;
+		$must_exclude_one_ids = $this->must_exclude_one_ids;
+		$must_not_contain_ids = $this->must_not_contain_ids;
+		$must_contain_ids = $this->must_contain_ids;
+
+		/**
+		* Allow changing the query used for counting for posts using fulltext_native
+		*
+		* @event core.search_native_keywords_count_query_before
+		* @var	string	search_query			The parsed keywords used for this search
+		* @var	array	must_not_contain_ids	Ids that cannot be taken into account for the results
+		* @var	array	must_exclude_one_ids	Ids that cannot be on the results
+		* @var	array	must_contain_ids		Ids that must be on the results
+		* @var	int		total_results			The previous result count for the format of the query
+		*										Set to 0 to force a re-count
+		* @var	array	sql_array				The data on how to search in the DB at this point
+		* @var	bool	left_join_topics		Whether or not TOPICS_TABLE should be CROSS JOIN'ED
+		* @var	array	author_ary				Array of user_id containing the users to filter the results to
+		* @var	string	author_name				An extra username to search on (!empty(author_ary) must be true, to be relevant)
+		* @var	array	ex_fid_ary				Which forums not to search on
+		* @var	int		topic_id				Limit the search to this topic_id only
+		* @var	string	sql_sort_table			Extra tables to include in the SQL query.
+		*										Used in conjunction with sql_sort_join
+		* @var	string	sql_sort_join			SQL conditions to join all the tables used together.
+		*										Used in conjunction with sql_sort_table
+		* @var	int		sort_days				Time, in days, of the oldest possible post to list
+		* @var	string	sql_where				An array of the current WHERE clause conditions
+		* @var	string	sql_match				Which columns to do the search on
+		* @var	string	sql_match_where			Extra conditions to use to properly filter the matching process
+		* @var	bool	group_by				Whether or not the SQL query requires a GROUP BY for the elements in the SELECT clause
+		* @var	string	sort_by_sql				The possible predefined sort types
+		* @var	string	sort_key				The sort type used from the possible sort types
+		* @var	string	sort_dir				"a" for ASC or "d" dor DESC for the sort order used
+		* @var	string	sql_sort				The result SQL when processing sort_by_sql + sort_key + sort_dir
+		* @var	int		start					How many posts to skip in the search results (used for pagination)
+		* @since 3.1.5-RC1
+		*/
+		$vars = array(
+			'search_query',
+			'must_not_contain_ids',
+			'must_exclude_one_ids',
+			'must_contain_ids',
+			'total_results',
+			'sql_array',
+			'left_join_topics',
+			'author_ary',
+			'author_name',
+			'ex_fid_ary',
+			'topic_id',
+			'sql_sort_table',
+			'sql_sort_join',
+			'sort_days',
+			'sql_where',
+			'sql_match',
+			'sql_match_where',
+			'group_by',
+			'sort_by_sql',
+			'sort_key',
+			'sort_dir',
+			'sql_sort',
+			'start',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.search_native_keywords_count_query_before', compact($vars)));
+
 		if ($topic_id)
 		{
 			$sql_where[] = 'p.topic_id = ' . $topic_id;
 		}
 
-		if (sizeof($author_ary))
+		if (count($author_ary))
 		{
 			if ($author_name)
 			{
@@ -731,7 +860,7 @@ class fulltext_native extends \phpbb\search\base
 			$sql_where[] = $sql_author;
 		}
 
-		if (sizeof($ex_fid_ary))
+		if (count($ex_fid_ary))
 		{
 			$sql_where[] = $this->db->sql_in_set('p.forum_id', $ex_fid_ary, true);
 		}
@@ -769,7 +898,6 @@ class fulltext_native extends \phpbb\search\base
 
 				break;
 
-				case 'sqlite':
 				case 'sqlite3':
 					$sql_array_count['SELECT'] = ($type == 'posts') ? 'DISTINCT p.post_id' : 'DISTINCT p.topic_id';
 					$sql = 'SELECT COUNT(' . (($type == 'posts') ? 'post_id' : 'topic_id') . ') as total_results
@@ -823,6 +951,13 @@ class fulltext_native extends \phpbb\search\base
 			);
 		}
 
+		// if using mysql and the total result count is not calculated yet, get it from the db
+		if (!$total_results && $is_mysql)
+		{
+			// Also count rows for the query as if there was not LIMIT. Add SQL_CALC_FOUND_ROWS to SQL
+			$sql_array['SELECT'] = 'SQL_CALC_FOUND_ROWS ' . $sql_array['SELECT'];
+		}
+
 		$sql_array['WHERE'] = implode(' AND ', $sql_where);
 		$sql_array['GROUP_BY'] = ($group_by) ? (($type == 'posts') ? 'p.post_id' : 'p.topic_id') . ', ' . $sort_by_sql[$sort_key] : '';
 		$sql_array['ORDER_BY'] = $sql_sort;
@@ -838,19 +973,9 @@ class fulltext_native extends \phpbb\search\base
 		}
 		$this->db->sql_freeresult($result);
 
-		// if we use mysql and the total result count is not cached yet, retrieve it from the db
 		if (!$total_results && $is_mysql)
 		{
-			// Count rows for the executed queries. Replace $select within $sql with SQL_CALC_FOUND_ROWS, and run it
-			$sql_array_copy = $sql_array;
-			$sql_array_copy['SELECT'] = 'SQL_CALC_FOUND_ROWS p.post_id ';
-
-			$sql_calc = $this->db->sql_build_query('SELECT', $sql_array_copy);
-			unset($sql_array_copy);
-
-			$this->db->sql_query($sql_calc);
-			$this->db->sql_freeresult($result);
-
+			// Get the number of results as calculated by MySQL
 			$sql_count = 'SELECT FOUND_ROWS() as total_results';
 			$result = $this->db->sql_query($sql_count);
 			$total_results = (int) $this->db->sql_fetchfield('total_results');
@@ -905,13 +1030,13 @@ class fulltext_native extends \phpbb\search\base
 	public function author_search($type, $firstpost_only, $sort_by_sql, $sort_key, $sort_dir, $sort_days, $ex_fid_ary, $post_visibility, $topic_id, $author_ary, $author_name, &$id_ary, &$start, $per_page)
 	{
 		// No author? No posts
-		if (!sizeof($author_ary))
+		if (!count($author_ary))
 		{
 			return 0;
 		}
 
 		// generate a search_key from all the options to identify the results
-		$search_key = md5(implode('#', array(
+		$search_key_array = array(
 			'',
 			$type,
 			($firstpost_only) ? 'firstpost' : '',
@@ -924,7 +1049,39 @@ class fulltext_native extends \phpbb\search\base
 			$post_visibility,
 			implode(',', $author_ary),
 			$author_name,
-		)));
+		);
+
+		/**
+		* Allow changing the search_key for cached results
+		*
+		* @event core.search_native_by_author_modify_search_key
+		* @var	array	search_key_array	Array with search parameters to generate the search_key
+		* @var	string	type				Searching type ('posts', 'topics')
+		* @var	boolean	firstpost_only		Flag indicating if only topic starting posts are considered
+		* @var	int		sort_days			Time, in days, of the oldest possible post to list
+		* @var	string	sort_key			The sort type used from the possible sort types
+		* @var	int		topic_id			Limit the search to this topic_id only
+		* @var	array	ex_fid_ary			Which forums not to search on
+		* @var	string	post_visibility		Post visibility data
+		* @var	array	author_ary			Array of user_id containing the users to filter the results to
+		* @var	string	author_name			The username to search on
+		* @since 3.1.7-RC1
+		*/
+		$vars = array(
+			'search_key_array',
+			'type',
+			'firstpost_only',
+			'sort_days',
+			'sort_key',
+			'topic_id',
+			'ex_fid_ary',
+			'post_visibility',
+			'author_ary',
+			'author_name',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.search_native_by_author_modify_search_key', compact($vars)));
+
+		$search_key = md5(implode('#', $search_key_array));
 
 		// try reading the results from cache
 		$total_results = 0;
@@ -945,7 +1102,7 @@ class fulltext_native extends \phpbb\search\base
 		{
 			$sql_author = $this->db->sql_in_set('p.poster_id', $author_ary);
 		}
-		$sql_fora		= (sizeof($ex_fid_ary)) ? ' AND ' . $this->db->sql_in_set('p.forum_id', $ex_fid_ary, true) : '';
+		$sql_fora		= (count($ex_fid_ary)) ? ' AND ' . $this->db->sql_in_set('p.forum_id', $ex_fid_ary, true) : '';
 		$sql_time		= ($sort_days) ? ' AND p.post_time >= ' . (time() - ($sort_days * 86400)) : '';
 		$sql_topic_id	= ($topic_id) ? ' AND p.topic_id = ' . (int) $topic_id : '';
 		$sql_firstpost = ($firstpost_only) ? ' AND p.post_id = t.topic_first_post_id' : '';
@@ -975,6 +1132,53 @@ class fulltext_native extends \phpbb\search\base
 		$select = ($type == 'posts') ? 'p.post_id' : 't.topic_id';
 		$is_mysql = false;
 
+		/**
+		* Allow changing the query used to search for posts by author in fulltext_native
+		*
+		* @event core.search_native_author_count_query_before
+		* @var	int		total_results		The previous result count for the format of the query.
+		*									Set to 0 to force a re-count
+		* @var	string	type				The type of search being made
+		* @var	string	select				SQL SELECT clause for what to get
+		* @var	string	sql_sort_table		CROSS JOIN'ed table to allow doing the sort chosen
+		* @var	string	sql_sort_join		Condition to define how to join the CROSS JOIN'ed table specifyed in sql_sort_table
+		* @var	array	sql_author			SQL WHERE condition for the post author ids
+		* @var	int		topic_id			Limit the search to this topic_id only
+		* @var	string	sort_by_sql			The possible predefined sort types
+		* @var	string	sort_key			The sort type used from the possible sort types
+		* @var	string	sort_dir			"a" for ASC or "d" dor DESC for the sort order used
+		* @var	string	sql_sort			The result SQL when processing sort_by_sql + sort_key + sort_dir
+		* @var	string	sort_days			Time, in days, that the oldest post showing can have
+		* @var	string	sql_time			The SQL to search on the time specifyed by sort_days
+		* @var	bool	firstpost_only		Wether or not to search only on the first post of the topics
+		* @var	string	sql_firstpost		The SQL used in the WHERE claused to filter by firstpost.
+		* @var	array	ex_fid_ary			Forum ids that must not be searched on
+		* @var	array	sql_fora			SQL query for ex_fid_ary
+		* @var	int		start				How many posts to skip in the search results (used for pagination)
+		* @since 3.1.5-RC1
+		*/
+		$vars = array(
+			'total_results',
+			'type',
+			'select',
+			'sql_sort_table',
+			'sql_sort_join',
+			'sql_author',
+			'topic_id',
+			'sort_by_sql',
+			'sort_key',
+			'sort_dir',
+			'sql_sort',
+			'sort_days',
+			'sql_time',
+			'firstpost_only',
+			'sql_firstpost',
+			'ex_fid_ary',
+			'sql_fora',
+			'start',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.search_native_author_count_query_before', compact($vars)));
+
 		// If the cache was completely empty count the results
 		if (!$total_results)
 		{
@@ -1000,7 +1204,7 @@ class fulltext_native extends \phpbb\search\base
 					}
 					else
 					{
-						if ($this->db->get_sql_layer() == 'sqlite' || $this->db->get_sql_layer() == 'sqlite3')
+						if ($this->db->get_sql_layer() == 'sqlite3')
 						{
 							$sql = 'SELECT COUNT(topic_id) as total_results
 								FROM (SELECT DISTINCT t.topic_id';
@@ -1017,7 +1221,7 @@ class fulltext_native extends \phpbb\search\base
 								$post_visibility
 								$sql_fora
 								AND t.topic_id = p.topic_id
-								$sql_time" . (($this->db->get_sql_layer() == 'sqlite' || $this->db->get_sql_layer() == 'sqlite3') ? ')' : '');
+								$sql_time" . ($this->db->get_sql_layer() == 'sqlite3' ? ')' : '');
 					}
 					$result = $this->db->sql_query($sql);
 
@@ -1076,9 +1280,9 @@ class fulltext_native extends \phpbb\search\base
 		if (!$total_results && $is_mysql)
 		{
 			// Count rows for the executed queries. Replace $select within $sql with SQL_CALC_FOUND_ROWS, and run it.
-			$sql_calc = str_replace('SELECT ' . $select, 'SELECT DISTINCT SQL_CALC_FOUND_ROWS p.post_id', $sql);
+			$sql_calc = str_replace('SELECT ' . $select, 'SELECT SQL_CALC_FOUND_ROWS ' . $select, $sql);
 
-			$this->db->sql_query($sql_calc);
+			$result = $this->db->sql_query($sql_calc);
 			$this->db->sql_freeresult($result);
 
 			$sql_count = 'SELECT FOUND_ROWS() as total_results';
@@ -1105,7 +1309,7 @@ class fulltext_native extends \phpbb\search\base
 			$this->db->sql_freeresult($result);
 		}
 
-		if (sizeof($id_ary))
+		if (count($id_ary))
 		{
 			$this->save_ids($search_key, '', $author_ary, $total_results, $id_ary, $start, $sort_dir);
 			$id_ary = array_slice($id_ary, 0, $per_page);
@@ -1139,7 +1343,6 @@ class fulltext_native extends \phpbb\search\base
 		$match[] = '#\[\/?[a-z0-9\*\+\-]+(?:=.*?)?(?::[a-z])?(\:?[0-9a-z]{5,})\]#';
 
 		$min = $this->word_length['min'];
-		$max = $this->word_length['max'];
 
 		$isset_min = $min - 1;
 
@@ -1175,9 +1378,9 @@ class fulltext_native extends \phpbb\search\base
 				* Note: this could be optimized. If the codepoint is lower than Hangul's range
 				* we know that it will also be lower than CJK ranges
 				*/
-				if ((strncmp($word, UTF8_HANGUL_FIRST, 3) < 0 || strncmp($word, UTF8_HANGUL_LAST, 3) > 0)
-					&& (strncmp($word, UTF8_CJK_FIRST, 3) < 0 || strncmp($word, UTF8_CJK_LAST, 3) > 0)
-					&& (strncmp($word, UTF8_CJK_B_FIRST, 4) < 0 || strncmp($word, UTF8_CJK_B_LAST, 4) > 0))
+				if ((strncmp($word, self::UTF8_HANGUL_FIRST, 3) < 0 || strncmp($word, self::UTF8_HANGUL_LAST, 3) > 0)
+					&& (strncmp($word, self::UTF8_CJK_FIRST, 3) < 0 || strncmp($word, self::UTF8_CJK_LAST, 3) > 0)
+					&& (strncmp($word, self::UTF8_CJK_B_FIRST, 4) < 0 || strncmp($word, self::UTF8_CJK_B_LAST, 4) > 0))
 				{
 					$word = strtok(' ');
 					continue;
@@ -1250,6 +1453,38 @@ class fulltext_native extends \phpbb\search\base
 			$words['del']['post'] = array();
 			$words['del']['title'] = array();
 		}
+
+		/**
+		* Event to modify method arguments and words before the native search index is updated
+		*
+		* @event core.search_native_index_before
+		* @var string	mode				Contains the post mode: edit, post, reply, quote
+		* @var int		post_id				The id of the post which is modified/created
+		* @var string	message				New or updated post content
+		* @var string	subject				New or updated post subject
+		* @var int		poster_id			Post author's user id
+		* @var int		forum_id			The id of the forum in which the post is located
+		* @var array	words				Grouped lists of words added to or remove from the index
+		* @var array	split_text			Array of words from the message
+		* @var array	split_title			Array of words from the title
+		* @var array	cur_words			Array of words currently in the index for comparing to new words
+		* 									when mode is edit. Empty for other modes.
+		* @since 3.2.3-RC1
+		*/
+		$vars = array(
+			'mode',
+			'post_id',
+			'message',
+			'subject',
+			'poster_id',
+			'forum_id',
+			'words',
+			'split_text',
+			'split_title',
+			'cur_words',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.search_native_index_before', compact($vars)));
+
 		unset($split_text);
 		unset($split_title);
 
@@ -1260,7 +1495,7 @@ class fulltext_native extends \phpbb\search\base
 		// individual arrays of added and removed words for text and title. What
 		// we need to do now is add the new words (if they don't already exist)
 		// and then add (or remove) matches between the words and this post
-		if (sizeof($unique_add_words))
+		if (count($unique_add_words))
 		{
 			$sql = 'SELECT word_id, word_text
 				FROM ' . SEARCH_WORDLIST_TABLE . '
@@ -1276,7 +1511,7 @@ class fulltext_native extends \phpbb\search\base
 			$new_words = array_diff($unique_add_words, array_keys($word_ids));
 
 			$this->db->sql_transaction('begin');
-			if (sizeof($new_words))
+			if (count($new_words))
 			{
 				$sql_ary = array();
 
@@ -1300,7 +1535,7 @@ class fulltext_native extends \phpbb\search\base
 		{
 			$title_match = ($word_in == 'title') ? 1 : 0;
 
-			if (sizeof($word_ary))
+			if (count($word_ary))
 			{
 				$sql_in = array();
 				foreach ($word_ary as $word)
@@ -1329,7 +1564,7 @@ class fulltext_native extends \phpbb\search\base
 		{
 			$title_match = ($word_in == 'title') ? 1 : 0;
 
-			if (sizeof($word_ary))
+			if (count($word_ary))
 			{
 				$sql = 'INSERT INTO ' . SEARCH_WORDMATCH_TABLE . ' (post_id, word_id, title_match)
 					SELECT ' . (int) $post_id . ', word_id, ' . (int) $title_match . '
@@ -1360,7 +1595,7 @@ class fulltext_native extends \phpbb\search\base
 	*/
 	public function index_remove($post_ids, $author_ids, $forum_ids)
 	{
-		if (sizeof($post_ids))
+		if (count($post_ids))
 		{
 			$sql = 'SELECT w.word_id, w.word_text, m.title_match
 				FROM ' . SEARCH_WORDMATCH_TABLE . ' m, ' . SEARCH_WORDLIST_TABLE . ' w
@@ -1383,7 +1618,7 @@ class fulltext_native extends \phpbb\search\base
 			}
 			$this->db->sql_freeresult($result);
 
-			if (sizeof($title_word_ids))
+			if (count($title_word_ids))
 			{
 				$sql = 'UPDATE ' . SEARCH_WORDLIST_TABLE . '
 					SET word_count = word_count - 1
@@ -1392,7 +1627,7 @@ class fulltext_native extends \phpbb\search\base
 				$this->db->sql_query($sql);
 			}
 
-			if (sizeof($message_word_ids))
+			if (count($message_word_ids))
 			{
 				$sql = 'UPDATE ' . SEARCH_WORDLIST_TABLE . '
 					SET word_count = word_count - 1
@@ -1422,7 +1657,7 @@ class fulltext_native extends \phpbb\search\base
 		// carry on ... it's okay ... I know when I'm not wanted boo hoo
 		if (!$this->config['fulltext_native_load_upd'])
 		{
-			set_config('search_last_gc', time(), true);
+			$this->config->set('search_last_gc', time(), false);
 			return;
 		}
 
@@ -1447,7 +1682,7 @@ class fulltext_native extends \phpbb\search\base
 			}
 			$this->db->sql_freeresult($result);
 
-			if (sizeof($sql_in))
+			if (count($sql_in))
 			{
 				// Flag the words
 				$sql = 'UPDATE ' . SEARCH_WORDLIST_TABLE . '
@@ -1457,7 +1692,7 @@ class fulltext_native extends \phpbb\search\base
 
 				// by setting search_last_gc to the new time here we make sure that if a user reloads because the
 				// following query takes too long, he won't run into it again
-				set_config('search_last_gc', time(), true);
+				$this->config->set('search_last_gc', time(), false);
 
 				// Delete the matches
 				$sql = 'DELETE FROM ' . SEARCH_WORDMATCH_TABLE . '
@@ -1467,13 +1702,13 @@ class fulltext_native extends \phpbb\search\base
 			unset($sql_in);
 		}
 
-		if (sizeof($destroy_cache_words))
+		if (count($destroy_cache_words))
 		{
 			// destroy cached search results containing any of the words that are now common or were removed
 			$this->destroy_cache(array_unique($destroy_cache_words));
 		}
 
-		set_config('search_last_gc', time(), true);
+		$this->config->set('search_last_gc', time(), false);
 	}
 
 	/**
@@ -1481,20 +1716,42 @@ class fulltext_native extends \phpbb\search\base
 	*/
 	public function delete_index($acp_module, $u_action)
 	{
+		$sql_queries = [];
+
 		switch ($this->db->get_sql_layer())
 		{
-			case 'sqlite':
 			case 'sqlite3':
-				$this->db->sql_query('DELETE FROM ' . SEARCH_WORDLIST_TABLE);
-				$this->db->sql_query('DELETE FROM ' . SEARCH_WORDMATCH_TABLE);
-				$this->db->sql_query('DELETE FROM ' . SEARCH_RESULTS_TABLE);
+				$sql_queries[] = 'DELETE FROM ' . SEARCH_WORDLIST_TABLE;
+				$sql_queries[] = 'DELETE FROM ' . SEARCH_WORDMATCH_TABLE;
+				$sql_queries[] = 'DELETE FROM ' . SEARCH_RESULTS_TABLE;
 			break;
 
 			default:
-				$this->db->sql_query('TRUNCATE TABLE ' . SEARCH_WORDLIST_TABLE);
-				$this->db->sql_query('TRUNCATE TABLE ' . SEARCH_WORDMATCH_TABLE);
-				$this->db->sql_query('TRUNCATE TABLE ' . SEARCH_RESULTS_TABLE);
+				$sql_queries[] = 'TRUNCATE TABLE ' . SEARCH_WORDLIST_TABLE;
+				$sql_queries[] = 'TRUNCATE TABLE ' . SEARCH_WORDMATCH_TABLE;
+				$sql_queries[] = 'TRUNCATE TABLE ' . SEARCH_RESULTS_TABLE;
 			break;
+		}
+
+		$stats = $this->stats;
+
+		/**
+		* Event to modify SQL queries before the native search index is deleted
+		*
+		* @event core.search_native_delete_index_before
+		* @var array	sql_queries			Array with queries for deleting the search index
+		* @var array	stats				Array with statistics of the current index (read only)
+		* @since 3.2.3-RC1
+		*/
+		$vars = array(
+			'sql_queries',
+			'stats',
+		);
+		extract($this->phpbb_dispatcher->trigger_event('core.search_native_delete_index_before', compact($vars)));
+
+		foreach ($sql_queries as $sql_query)
+		{
+			$this->db->sql_query($sql_query);
 		}
 	}
 
@@ -1503,7 +1760,7 @@ class fulltext_native extends \phpbb\search\base
 	*/
 	public function index_created()
 	{
-		if (!sizeof($this->stats))
+		if (!count($this->stats))
 		{
 			$this->get_stats();
 		}
@@ -1516,7 +1773,7 @@ class fulltext_native extends \phpbb\search\base
 	*/
 	public function index_stats()
 	{
-		if (!sizeof($this->stats))
+		if (!count($this->stats))
 		{
 			$this->get_stats();
 		}
@@ -1544,13 +1801,11 @@ class fulltext_native extends \phpbb\search\base
 	* @param	string	$allowed_chars	String of special chars to allow
 	* @param	string	$encoding		Text encoding
 	* @return	string					Cleaned up text, only alphanumeric chars are left
-	*
-	* @todo \normalizer::cleanup being able to be used?
 	*/
 	protected function cleanup($text, $allowed_chars = null, $encoding = 'utf-8')
 	{
 		static $conv = array(), $conv_loaded = array();
-		$words = $allow = array();
+		$allow = array();
 
 		// Convert the text to UTF-8
 		$encoding = strtolower($encoding);
@@ -1572,12 +1827,9 @@ class fulltext_native extends \phpbb\search\base
 		$text = htmlspecialchars_decode(utf8_decode_ncr($text), ENT_QUOTES);
 
 		/**
-		* Load the UTF-8 normalizer
-		*
-		* If we use it more widely, an instance of that class should be held in a
-		* a global variable instead
+		* Normalize to NFC
 		*/
-		\utf_normalizer::nfc($text);
+		$text = \Normalizer::normalize($text);
 
 		/**
 		* The first thing we do is:
@@ -1670,9 +1922,9 @@ class fulltext_native extends \phpbb\search\base
 			$utf_char = substr($text, $pos, $utf_len);
 			$pos += $utf_len;
 
-			if (($utf_char >= UTF8_HANGUL_FIRST && $utf_char <= UTF8_HANGUL_LAST)
-				|| ($utf_char >= UTF8_CJK_FIRST && $utf_char <= UTF8_CJK_LAST)
-				|| ($utf_char >= UTF8_CJK_B_FIRST && $utf_char <= UTF8_CJK_B_LAST))
+			if (($utf_char >= self::UTF8_HANGUL_FIRST && $utf_char <= self::UTF8_HANGUL_LAST)
+				|| ($utf_char >= self::UTF8_CJK_FIRST && $utf_char <= self::UTF8_CJK_LAST)
+				|| ($utf_char >= self::UTF8_CJK_B_FIRST && $utf_char <= self::UTF8_CJK_B_LAST))
 			{
 				/**
 				* All characters within these ranges are valid
@@ -1789,15 +2041,15 @@ class fulltext_native extends \phpbb\search\base
 		</dl>
 		<dl>
 			<dt><label for="fulltext_native_min_chars">' . $this->user->lang['MIN_SEARCH_CHARS'] . $this->user->lang['COLON'] . '</label><br /><span>' . $this->user->lang['MIN_SEARCH_CHARS_EXPLAIN'] . '</span></dt>
-			<dd><input id="fulltext_native_min_chars" type="number" size="3" maxlength="3" min="0" max="255" name="config[fulltext_native_min_chars]" value="' . (int) $this->config['fulltext_native_min_chars'] . '" /></dd>
+			<dd><input id="fulltext_native_min_chars" type="number" min="0" max="255" name="config[fulltext_native_min_chars]" value="' . (int) $this->config['fulltext_native_min_chars'] . '" /></dd>
 		</dl>
 		<dl>
 			<dt><label for="fulltext_native_max_chars">' . $this->user->lang['MAX_SEARCH_CHARS'] . $this->user->lang['COLON'] . '</label><br /><span>' . $this->user->lang['MAX_SEARCH_CHARS_EXPLAIN'] . '</span></dt>
-			<dd><input id="fulltext_native_max_chars" type="number" size="3" maxlength="3" min="0" max="255" name="config[fulltext_native_max_chars]" value="' . (int) $this->config['fulltext_native_max_chars'] . '" /></dd>
+			<dd><input id="fulltext_native_max_chars" type="number" min="0" max="255" name="config[fulltext_native_max_chars]" value="' . (int) $this->config['fulltext_native_max_chars'] . '" /></dd>
 		</dl>
 		<dl>
 			<dt><label for="fulltext_native_common_thres">' . $this->user->lang['COMMON_WORD_THRESHOLD'] . $this->user->lang['COLON'] . '</label><br /><span>' . $this->user->lang['COMMON_WORD_THRESHOLD_EXPLAIN'] . '</span></dt>
-			<dd><input id="fulltext_native_common_thres" type="text" size="3" maxlength="3" name="config[fulltext_native_common_thres]" value="' . (double) $this->config['fulltext_native_common_thres'] . '" /> %</dd>
+			<dd><input id="fulltext_native_common_thres" type="text" name="config[fulltext_native_common_thres]" value="' . (double) $this->config['fulltext_native_common_thres'] . '" /> %</dd>
 		</dl>
 		';
 

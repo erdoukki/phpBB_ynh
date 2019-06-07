@@ -50,21 +50,47 @@ class manager
 	protected $config;
 
 	/**
+	 * @var bool Whether or not initialized() has been called
+	 */
+	private $initialized = false;
+
+	/**
+	 * @var array Hashing driver service collection
+	 */
+	private $hashing_algorithms;
+
+	/**
+	 * @var array List of default driver types
+	 */
+	private $defaults;
+
+	/**
 	* Construct a passwords object
 	*
-	* @param \phpbb\config\config $config phpBB configuration
-	* @param array $hashing_algorithms Hashing driver
-	*			service collection
-	* @param \phpbb\passwords\helper $helper Passwords helper object
-	* @param string $defaults List of default driver types
+	* @param \phpbb\config\config		$config				phpBB configuration
+	* @param array						$hashing_algorithms	Hashing driver service collection
+	* @param \phpbb\passwords\helper	$helper				Passwords helper object
+	* @param array						$defaults			List of default driver types
 	*/
 	public function __construct(\phpbb\config\config $config, $hashing_algorithms, helper $helper, $defaults)
 	{
 		$this->config = $config;
 		$this->helper = $helper;
+		$this->hashing_algorithms = $hashing_algorithms;
+		$this->defaults = $defaults;
+	}
 
-		$this->fill_type_map($hashing_algorithms);
-		$this->register_default_type($defaults);
+	/**
+	 * Initialize the internal state
+	 */
+	protected function initialize()
+	{
+		if (!$this->initialized)
+		{
+			$this->initialized = true;
+			$this->fill_type_map($this->hashing_algorithms);
+			$this->register_default_type($this->defaults);
+		}
 	}
 
 	/**
@@ -144,9 +170,11 @@ class manager
 			return false;
 		}
 
+		$this->initialize();
+
 		// Be on the lookout for multiple hashing algorithms
 		// 2 is correct: H\2a > 2, H\P > 2
-		if (strlen($match[1]) > 2)
+		if (strlen($match[1]) > 2 && strpos($match[1], '\\') !== false)
 		{
 			$hash_types = explode('\\', $match[1]);
 			$return_ary = array();
@@ -192,6 +220,8 @@ class manager
 			return false;
 		}
 
+		$this->initialize();
+
 		// Try to retrieve algorithm by service name if type doesn't
 		// start with dollar sign
 		if (!is_array($type) && strpos($type, '$') !== 0 && isset($this->algorithms[$type]))
@@ -220,7 +250,7 @@ class manager
 
 	/**
 	* Check supplied password against hash and set convert_flag if password
-	* needs to be converted to different format (preferrably newer one)
+	* needs to be converted to different format (preferably newer one)
 	*
 	* @param string $password Password that should be checked
 	* @param string $hash Stored hash
@@ -241,6 +271,8 @@ class manager
 		{
 			return false;
 		}
+
+		$this->initialize();
 
 		// First find out what kind of hash we're dealing with
 		$stored_hash_type = $this->detect_algorithm($hash);
@@ -265,7 +297,14 @@ class manager
 		}
 		else
 		{
-			$this->convert_flag = false;
+			if ($stored_hash_type instanceof driver\rehashable_driver_interface)
+			{
+				$this->convert_flag = $stored_hash_type->needs_rehash($hash);
+			}
+			else
+			{
+				$this->convert_flag = false;
+			}
 		}
 
 		// Check all legacy hash types if prefix is $CP$
@@ -297,6 +336,8 @@ class manager
 	*/
 	public function combined_hash_password($password_hash, $type)
 	{
+		$this->initialize();
+
 		$data = array(
 			'prefix' => '$',
 			'settings' => '$',

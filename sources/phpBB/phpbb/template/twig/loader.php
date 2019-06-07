@@ -21,6 +21,24 @@ class loader extends \Twig_Loader_Filesystem
 	protected $safe_directories = array();
 
 	/**
+	 * @var \phpbb\filesystem\filesystem_interface
+	 */
+	protected $filesystem;
+
+	/**
+	 * Constructor
+	 *
+	 * @param \phpbb\filesystem\filesystem_interface $filesystem
+	 * @param string|array	$paths
+	 */
+	public function __construct(\phpbb\filesystem\filesystem_interface $filesystem, $paths = array())
+	{
+		$this->filesystem = $filesystem;
+
+		parent::__construct($paths, __DIR__);
+	}
+
+	/**
 	* Set safe directories
 	*
 	* @param array $directories Array of directories that are safe (empty to clear)
@@ -49,7 +67,7 @@ class loader extends \Twig_Loader_Filesystem
 	*/
 	public function addSafeDirectory($directory)
 	{
-		$directory = phpbb_realpath($directory);
+		$directory = $this->filesystem->realpath($directory);
 
 		if ($directory !== false)
 		{
@@ -83,12 +101,22 @@ class loader extends \Twig_Loader_Filesystem
 	}
 
 	/**
+	 * Adds a realpath call to fix a BC break in Twig 1.26 (https://github.com/twigphp/Twig/issues/2145)
+	 *
+	 * {@inheritdoc}
+	 */
+	public function addPath($path, $namespace = self::MAIN_NAMESPACE)
+	{
+		return parent::addPath($this->filesystem->realpath($path), $namespace);
+	}
+
+	/**
 	* Find the template
 	*
 	* Override for Twig_Loader_Filesystem::findTemplate to add support
 	*	for loading from safe directories.
 	*/
-	protected function findTemplate($name)
+	protected function findTemplate($name, $throw = true)
 	{
 		$name = (string) $name;
 
@@ -97,18 +125,19 @@ class loader extends \Twig_Loader_Filesystem
 
 		// If this is in the cache we can skip the entire process below
 		//	as it should have already been validated
-		if (isset($this->cache[$name])) {
+		if (isset($this->cache[$name]))
+		{
 			return $this->cache[$name];
 		}
 
 		// First, find the template name. The override above of validateName
 		//	causes the validateName process to be skipped for this call
-		$file = parent::findTemplate($name);
+		$file = parent::findTemplate($name, $throw);
 
 		try
 		{
 			// Try validating the name (which may throw an exception)
-			parent::validateName($name);
+			$this->validateName($name);
 		}
 		catch (\Twig_Error_Loader $e)
 		{
@@ -118,7 +147,7 @@ class loader extends \Twig_Loader_Filesystem
 				//	can now check if we're within a "safe" directory
 
 				// Find the real path of the directory the file is in
-				$directory = phpbb_realpath(dirname($file));
+				$directory = $this->filesystem->realpath(dirname($file));
 
 				if ($directory === false)
 				{

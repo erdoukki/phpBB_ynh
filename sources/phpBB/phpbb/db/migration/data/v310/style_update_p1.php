@@ -133,10 +133,10 @@ class style_update_p1 extends \phpbb\db\migration\migration
 		}
 
 		// Remove old entries from styles table
-		if (!sizeof($valid_styles))
+		if (!count($valid_styles))
 		{
 			// No valid styles: remove everything and add prosilver
-			$this->sql_query('DELETE FROM ' . STYLES_TABLE, $errored, $error_ary);
+			$this->sql_query('DELETE FROM ' . STYLES_TABLE);
 
 			$sql_ary = array(
 				'style_name'		=> 'prosilver',
@@ -157,15 +157,15 @@ class style_update_p1 extends \phpbb\db\migration\migration
 			$this->sql_query($sql);
 
 			$sql = 'SELECT style_id
-				FROM ' . $table . "
+				FROM ' . STYLES_TABLE . "
 				WHERE style_name = 'prosilver'";
 			$result = $this->sql_query($sql);
-			$default_style = $this->db->sql_fetchfield($result);
+			$default_style = (int) $this->db->sql_fetchfield('style_id');
 			$this->db->sql_freeresult($result);
 
-			set_config('default_style', $default_style);
+			$this->config->set('default_style', $default_style);
 
-			$sql = 'UPDATE ' . USERS_TABLE . ' SET user_style = 0';
+			$sql = 'UPDATE ' . USERS_TABLE . ' SET user_style = ' .  (int) $default_style;
 			$this->sql_query($sql);
 		}
 		else
@@ -183,9 +183,9 @@ class style_update_p1 extends \phpbb\db\migration\migration
 			}
 
 			// Reset styles for users
-			$this->sql_query('UPDATE ' . USERS_TABLE . '
-				SET user_style = 0
-				WHERE ' . $this->db->sql_in_set('user_style', $valid_styles, true));
+			$this->sql_query('UPDATE ' . USERS_TABLE . "
+				SET user_style = '" . (int) $valid_styles[0] . "'
+				WHERE " . $this->db->sql_in_set('user_style', $valid_styles, true));
 		}
 	}
 }

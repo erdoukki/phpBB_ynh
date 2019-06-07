@@ -26,6 +26,11 @@ class service_collection extends \ArrayObject
 	protected $container;
 
 	/**
+	* @var array
+	*/
+	protected $service_classes;
+
+	/**
 	* Constructor
 	*
 	* @param ContainerInterface $container Container object
@@ -33,6 +38,7 @@ class service_collection extends \ArrayObject
 	public function __construct(ContainerInterface $container)
 	{
 		$this->container = $container;
+		$this->service_classes = array();
 	}
 
 	/**
@@ -75,5 +81,57 @@ class service_collection extends \ArrayObject
 	public function add($name)
 	{
 		$this->offsetSet($name, null);
+	}
+
+	/**
+	* Add a service's class to the collection
+	*
+	* @param string	$service_id
+	* @param string	$class
+	*/
+	public function add_service_class($service_id, $class)
+	{
+		$this->service_classes[$service_id] = $class;
+	}
+
+	/**
+	* Get services' classes
+	*
+	* @return array
+	*/
+	public function get_service_classes()
+	{
+		return $this->service_classes;
+	}
+
+	/**
+	 * Returns the service associated to a class
+	 *
+	 * @return mixed
+	 * @throw \RuntimeException if the
+	 */
+	public function get_by_class($class)
+	{
+		$service_id = null;
+
+		foreach ($this->service_classes as $id => $service_class)
+		{
+			if ($service_class === $class)
+			{
+				if ($service_id !== null)
+				{
+					throw new \RuntimeException('More than one service definitions found for class "'.$class.'" in collection.');
+				}
+
+				$service_id = $id;
+			}
+		}
+
+		if ($service_id === null)
+		{
+			throw new \RuntimeException('No service found for class "'.$class.'" in collection.');
+		}
+
+		return $this->offsetGet($service_id);
 	}
 }

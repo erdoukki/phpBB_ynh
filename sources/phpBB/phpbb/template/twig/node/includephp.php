@@ -14,7 +14,6 @@
 
 namespace phpbb\template\twig\node;
 
-
 class includephp extends \Twig_Node
 {
 	/** @var \Twig_Environment */
@@ -47,7 +46,8 @@ class includephp extends \Twig_Node
 			return;
 		}
 
-		if ($this->getAttribute('ignore_missing')) {
+		if ($this->getAttribute('ignore_missing'))
+		{
 			$compiler
 				->write("try {\n")
 				->indent()
@@ -63,20 +63,21 @@ class includephp extends \Twig_Node
 				// Absolute path specified
 				->write("require(\$location);\n")
 			->outdent()
-			->write("} else if (file_exists(\$this->getEnvironment()->get_phpbb_root_path() . \$location)) {\n")
+			->write("} else if (file_exists(\$this->env->get_phpbb_root_path() . \$location)) {\n")
 			->indent()
 				// PHP file relative to phpbb_root_path
-				->write("require(\$this->getEnvironment()->get_phpbb_root_path() . \$location);\n")
+				->write("require(\$this->env->get_phpbb_root_path() . \$location);\n")
 			->outdent()
 			->write("} else {\n")
 			->indent()
 				// Local path (behaves like INCLUDE)
-				->write("require(\$this->getEnvironment()->getLoader()->getCacheKey(\$location));\n")
+				->write("require(\$this->env->getLoader()->getCacheKey(\$location));\n")
 			->outdent()
 			->write("}\n")
 		;
 
-		if ($this->getAttribute('ignore_missing')) {
+		if ($this->getAttribute('ignore_missing'))
+		{
 			$compiler
 				->outdent()
 				->write("} catch (\Twig_Error_Loader \$e) {\n")

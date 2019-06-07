@@ -25,6 +25,12 @@ class php_exporter
 	/** @var string phpBB Root Path */
 	protected $root_path;
 
+	/** @var string The minimum version for the events to return */
+	protected $min_version;
+
+	/** @var string The maximum version for the events to return */
+	protected $max_version;
+
 	/** @var string */
 	protected $current_file;
 
@@ -43,14 +49,18 @@ class php_exporter
 	/**
 	* @param string $phpbb_root_path
 	* @param mixed $extension	String 'vendor/ext' to filter, null for phpBB core
+	* @param string $min_version
+	* @param string $max_version
 	*/
-	public function __construct($phpbb_root_path, $extension = null)
+	public function __construct($phpbb_root_path, $extension = null, $min_version = null, $max_version = null)
 	{
 		$this->root_path = $phpbb_root_path;
 		$this->path = $phpbb_root_path;
 		$this->events = $this->file_lines = array();
 		$this->current_file = $this->current_event = '';
 		$this->current_event_line = 0;
+		$this->min_version = $min_version;
+		$this->max_version = $max_version;
 
 		$this->path = $this->root_path;
 		if ($extension)
@@ -107,7 +117,7 @@ class php_exporter
 		}
 		ksort($this->events);
 
-		return sizeof($this->events);
+		return count($this->events);
 	}
 
 	/**
@@ -148,11 +158,20 @@ class php_exporter
 
 	/**
 	* Format the php events as a wiki table
+	*
+	* @param string $action
 	* @return string
 	*/
-	public function export_events_for_wiki()
+	public function export_events_for_wiki($action = '')
 	{
-		$wiki_page = '= PHP Events (Hook Locations) =' . "\n";
+		if ($action === 'diff')
+		{
+			$wiki_page = '=== PHP Events (Hook Locations) ===' . "\n";
+		}
+		else
+		{
+			$wiki_page = '= PHP Events (Hook Locations) =' . "\n";
+		}
 		$wiki_page .= '{| class="sortable zebra" cellspacing="0" cellpadding="5"' . "\n";
 		$wiki_page .= '! Identifier !! Placement !! Arguments !! Added in Release !! Explanation' . "\n";
 		foreach ($this->events as $event)
@@ -177,13 +196,13 @@ class php_exporter
 		$content = file_get_contents($this->path . $this->current_file);
 		$num_events_found = 0;
 
-		if (strpos($content, "dispatcher->trigger_event('") || strpos($content, "dispatcher->dispatch('"))
+		if (strpos($content, 'dispatcher->trigger_event(') || strpos($content, 'dispatcher->dispatch('))
 		{
 			$this->set_content(explode("\n", $content));
-			for ($i = 0, $num_lines = sizeof($this->file_lines); $i < $num_lines; $i++)
+			for ($i = 0, $num_lines = count($this->file_lines); $i < $num_lines; $i++)
 			{
 				$event_line = false;
-				$found_trigger_event = strpos($this->file_lines[$i], "dispatcher->trigger_event('");
+				$found_trigger_event = strpos($this->file_lines[$i], 'dispatcher->trigger_event(');
 				$arguments = array();
 				if ($found_trigger_event !== false)
 				{
@@ -197,7 +216,7 @@ class php_exporter
 				}
 				else
 				{
-					$found_dispatch = strpos($this->file_lines[$i], "dispatcher->dispatch('");
+					$found_dispatch = strpos($this->file_lines[$i], 'dispatcher->dispatch(');
 					if ($found_dispatch !== false)
 					{
 						$event_line = $i;
@@ -215,9 +234,60 @@ class php_exporter
 					$since_line_num = $this->find_since();
 					$since = $this->validate_since($this->file_lines[$since_line_num]);
 
+					$changed_line_nums = $this->find_changed('changed');
+					if (empty($changed_line_nums))
+					{
+						$changed_line_nums = $this->find_changed('change');
+					}
+					$changed_versions = array();
+					if (!empty($changed_line_nums))
+					{
+						foreach ($changed_line_nums as $changed_line_num)
+						{
+							$changed_versions[] = $this->validate_changed($this->file_lines[$changed_line_num]);
+						}
+					}
+
+					if (!$this->version_is_filtered($since))
+					{
+						$valid_version = false;
+						foreach ($changed_versions as $changed)
+						{
+							$valid_version = $valid_version || $this->version_is_filtered($changed);
+						}
+
+						if (!$valid_version)
+						{
+							continue;
+						}
+					}
+
 					// Find event description line
 					$description_line_num = $this->find_description();
-					$description = substr(trim($this->file_lines[$description_line_num]), strlen('* '));
+					$description_lines = array();
+
+					while (true)
+					{
+						$description_line = substr(trim($this->file_lines[$description_line_num]), strlen('*'));
+						$description_line = trim(str_replace("\t", " ", $description_line));
+
+						// Reached end of description if line is a tag
+						if (strlen($description_line) && $description_line[0] == '@')
+						{
+							break;
+						}
+
+						$description_lines[] = $description_line;
+						$description_line_num++;
+					}
+
+					// If there is an empty line between description and first tag, remove it
+					if (!strlen(end($description_lines)))
+					{
+						array_pop($description_lines);
+					}
+
+					$description = trim(implode('<br/>', $description_lines));
 
 					if (isset($this->events[$this->current_event]))
 					{
@@ -243,6 +313,18 @@ class php_exporter
 	}
 
 	/**
+	 * The version to check
+	 *
+	 * @param string $version
+	 * @return bool
+	 */
+	protected function version_is_filtered($version)
+	{
+		return (!$this->min_version || phpbb_version_compare($this->min_version, $version, '<='))
+			&& (!$this->max_version || phpbb_version_compare($this->max_version, $version, '>='));
+	}
+
+	/**
 	* Find the name of the event inside the dispatch() line
 	*
 	* @param int $event_line
@@ -257,17 +339,17 @@ class php_exporter
 
 		if ($is_dispatch)
 		{
-			$regex = '#\$([a-z](?:[a-z0-9_]|->)*)';
-			$regex .= '->dispatch\(';
-			$regex .= '\'' . $this->preg_match_event_name() . '\'';
-			$regex .= '\);#';
+			$regex = '#\$[a-z](?:[a-z0-9_]|->)*';
+			$regex .= '->dispatch\((\[)?';
+			$regex .= '\'' . $this->preg_match_event_name() . '(?(1)\', \'(?2))+\'';
+			$regex .= '(?(1)\])\);#';
 		}
 		else
 		{
-			$regex = '#extract\(\$([a-z](?:[a-z0-9_]|->)*)';
-			$regex .= '->trigger_event\(';
-			$regex .= '\'' . $this->preg_match_event_name() . '\'';
-			$regex .= ', compact\(\$vars\)\)\);#';
+			$regex = '#extract\(\$[a-z](?:[a-z0-9_]|->)*';
+			$regex .= '->trigger_event\((\[)?';
+			$regex .= '\'' . $this->preg_match_event_name() . '(?(1)\', \'(?2))+\'';
+			$regex .= '(?(1)\]), compact\(\$vars\)\)\);#';
 		}
 
 		$match = array();
@@ -300,7 +382,7 @@ class php_exporter
 	public function get_vars_from_array()
 	{
 		$line = ltrim($this->file_lines[$this->current_event_line - 1], "\t");
-		if ($line === ');')
+		if ($line === ');' || $line === '];')
 		{
 			$vars_array = $this->get_vars_from_multi_line_array();
 		}
@@ -311,7 +393,7 @@ class php_exporter
 
 		foreach ($vars_array as $var)
 		{
-			if (!preg_match('#^([a-zA-Z_][a-zA-Z0-9_]*)$#', $var))
+			if (!preg_match('#^[a-z_][a-z0-9_]*$#i', $var))
 			{
 				throw new \LogicException("Found invalid var '{$var}' in array for event '{$this->current_event}' in file '{$this->current_file}:{$this->current_event_line}'", 3);
 			}
@@ -333,12 +415,12 @@ class php_exporter
 	public function get_vars_from_single_line_array($line, $throw_multiline = true)
 	{
 		$match = array();
-		preg_match('#^\$vars = array\(\'([a-zA-Z0-9_\' ,]+)\'\);$#', $line, $match);
+		preg_match('#^\$vars = (?:(\[)|array\()\'([a-z0-9_\' ,]+)\'(?(1)\]|\));$#i', $line, $match);
 
-		if (isset($match[1]))
+		if (isset($match[2]))
 		{
-			$vars_array = explode("', '", $match[1]);
-			if ($throw_multiline && sizeof($vars_array) > 6)
+			$vars_array = explode("', '", $match[2]);
+			if ($throw_multiline && count($vars_array) > 6)
 			{
 				throw new \LogicException('Should use multiple lines for $vars definition '
 					. "for event '{$this->current_event}' in file '{$this->current_file}:{$this->current_event_line}'", 2);
@@ -361,7 +443,7 @@ class php_exporter
 	{
 		$current_vars_line = 2;
 		$var_lines = array();
-		while (ltrim($this->file_lines[$this->current_event_line - $current_vars_line], "\t") !== '$vars = array(')
+		while (!in_array(ltrim($this->file_lines[$this->current_event_line - $current_vars_line], "\t"), ['$vars = array(', '$vars = [']))
 		{
 			$var_lines[] = substr(trim($this->file_lines[$this->current_event_line - $current_vars_line]), 0, -1);
 
@@ -401,7 +483,7 @@ class php_exporter
 				if (strpos($var_line, '* @var ') === 0)
 				{
 					$doc_line = explode(' ', $var_line, 5);
-					if (sizeof($doc_line) !== 5)
+					if (count($doc_line) !== 5)
 					{
 						throw new \LogicException("Found invalid line '{$this->file_lines[$this->current_event_line - $current_doc_line]}' "
 						. "for event '{$this->current_event}' in file '{$this->current_file}:{$this->current_event_line}'", 1);
@@ -426,7 +508,7 @@ class php_exporter
 
 		foreach ($doc_vars as $var)
 		{
-			if (!preg_match('#^([a-zA-Z_][a-zA-Z0-9_]*)$#', $var))
+			if (!preg_match('#^[a-z_][a-z0-9_]*$#i', $var))
 			{
 				throw new \LogicException("Found invalid @var '{$var}' in docblock for event "
 					. "'{$this->current_event}' in file '{$this->current_file}:{$this->current_event_line}'", 4);
@@ -449,6 +531,33 @@ class php_exporter
 	}
 
 	/**
+	* Find the "@changed" Information lines
+	*
+	* @param string $tag_name Should be 'change', not 'changed'
+	* @return array Absolute line numbers
+	* @throws \LogicException
+	*/
+	public function find_changed($tag_name)
+	{
+		$lines = array();
+		$last_line = 0;
+		try
+		{
+			while ($line = $this->find_tag($tag_name, array('since'), $last_line))
+			{
+				$lines[] = $line;
+				$last_line = $line;
+			}
+		}
+		catch (\LogicException $e)
+		{
+			// Not changed? No problem!
+		}
+
+		return $lines;
+	}
+
+	/**
 	* Find the "@event" Information line
 	*
 	* @return int Absolute line number
@@ -464,13 +573,14 @@ class php_exporter
 	* @param string $find_tag		Name of the tag we are trying to find
 	* @param array $disallowed_tags		List of tags that must not appear between
 	*									the tag and the actual event
+	* @param int $skip_to_line		Skip lines until this one
 	* @return int Absolute line number
 	* @throws \LogicException
 	*/
-	public function find_tag($find_tag, $disallowed_tags)
+	public function find_tag($find_tag, $disallowed_tags, $skip_to_line = 0)
 	{
-		$find_tag_line = 0;
-		$found_comment_end = false;
+		$find_tag_line = $skip_to_line ? $this->current_event_line - $skip_to_line + 1 : 0;
+		$found_comment_end = ($skip_to_line) ? true : false;
 		while (strpos(ltrim($this->file_lines[$this->current_event_line - $find_tag_line], "\t "), '* @' . $find_tag . ' ') !== 0)
 		{
 			if ($found_comment_end && ltrim($this->file_lines[$this->current_event_line - $find_tag_line], "\t") === '/**')
@@ -561,6 +671,27 @@ class php_exporter
 	}
 
 	/**
+	* Validate "@changed" Information
+	*
+	* @param string $line
+	* @return string
+	* @throws \LogicException
+	*/
+	public function validate_changed($line)
+	{
+		$match = array();
+		$line = str_replace("\t", ' ', ltrim($line, "\t "));
+		preg_match('#^\* @changed (\d+\.\d+\.\d+(?:-(?:a|b|RC|pl)\d+)?)( (?:.*))?$#', $line, $match);
+		if (!isset($match[2]))
+		{
+			throw new \LogicException("Invalid '@changed' information for event "
+				. "'{$this->current_event}' in file '{$this->current_file}:{$this->current_event_line}'");
+		}
+
+		return $match[2];
+	}
+
+	/**
 	* Validate "@event" Information
 	*
 	* @param string $event_name
@@ -599,9 +730,9 @@ class php_exporter
 	{
 		$vars_array = array_unique($vars_array);
 		$vars_docblock = array_unique($vars_docblock);
-		$sizeof_vars_array = sizeof($vars_array);
+		$sizeof_vars_array = count($vars_array);
 
-		if ($sizeof_vars_array !== sizeof($vars_docblock) || $sizeof_vars_array !== sizeof(array_intersect($vars_array, $vars_docblock)))
+		if ($sizeof_vars_array !== count($vars_docblock) || $sizeof_vars_array !== count(array_intersect($vars_array, $vars_docblock)))
 		{
 			throw new \LogicException("\$vars array does not match the list of '@var' tags for event "
 				. "'{$this->current_event}' in file '{$this->current_file}:{$this->current_event_line}'");

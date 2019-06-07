@@ -99,7 +99,7 @@ class ldap extends \phpbb\auth\provider\base
 
 		@ldap_close($ldap);
 
-		if (!is_array($result) || sizeof($result) < 2)
+		if (!is_array($result) || count($result) < 2)
 		{
 			return sprintf($this->user->lang['LDAP_NO_IDENTITY'], $this->user->data['username']);
 		}
@@ -192,7 +192,7 @@ class ldap extends \phpbb\auth\provider\base
 
 		$ldap_result = @ldap_get_entries($ldap, $search);
 
-		if (is_array($ldap_result) && sizeof($ldap_result) > 1)
+		if (is_array($ldap_result) && count($ldap_result) > 1)
 		{
 			if (@ldap_bind($ldap, $ldap_result[0]['dn'], htmlspecialchars_decode($password)))
 			{
@@ -289,7 +289,6 @@ class ldap extends \phpbb\auth\provider\base
 	/**
 	 * {@inheritdoc}
 	 */
-
 	public function acp()
 	{
 		// These are fields required in the config table
@@ -306,9 +305,9 @@ class ldap extends \phpbb\auth\provider\base
 		return array(
 			'TEMPLATE_FILE'	=> 'auth_provider_ldap.html',
 			'TEMPLATE_VARS'	=> array(
-				'AUTH_LDAP_DN'			=> $new_config['ldap_base_dn'],
+				'AUTH_LDAP_BASE_DN'		=> $new_config['ldap_base_dn'],
 				'AUTH_LDAP_EMAIL'		=> $new_config['ldap_email'],
-				'AUTH_LDAP_PASSORD'		=> $new_config['ldap_password'],
+				'AUTH_LDAP_PASSORD'		=> $new_config['ldap_password'] !== '' ? '********' : '',
 				'AUTH_LDAP_PORT'		=> $new_config['ldap_port'],
 				'AUTH_LDAP_SERVER'		=> $new_config['ldap_server'],
 				'AUTH_LDAP_UID'			=> $new_config['ldap_uid'],

@@ -229,6 +229,64 @@ function parse_document(container)
 }
 
 /**
+ * Extension actions helper functions
+ */
+function move_to_enabled(element)
+{
+	var disabled_header = document.querySelector('#ext_disabled_header');
+	disabled_header.parentNode.insertBefore(element, disabled_header);
+	element.classList.remove('ext_disabled');
+	element.classList.add('ext_enabled');
+}
+function move_to_disabled(element)
+{
+	var table_body = document.querySelector('#ext_disabled_header').parentNode;
+	table_body.appendChild(element);
+	element.classList.remove('ext_enabled');
+	element.classList.add('ext_disabled');
+}
+function set_actions(container, actions) {
+	container.innerHTML = '';
+	for (var i = 0; i < actions.length; i++) {
+		var a = document.createElement('a');
+		a.href = actions[i].U_ACTION.split('&amp;').join('&'); // replace all occurances
+		a.title = actions[i].L_ACTION_EXPLAIN;
+		if (actions[i].COLOR) {
+			a.style = actions[i].COLOR;
+		}
+		a.innerHTML = actions[i].L_ACTION;
+		// ajaxify this action as well
+		phpbb.ajaxify({
+			selector: a,
+			refresh: true,
+			callback: actions[i].ACTION_AJAX
+		});
+
+		container.appendChild(a);
+
+		if (i < actions.length - 1) {
+			container.innerHTML += '&nbsp;|&nbsp;';
+		}
+	}
+}
+function show_enabled_header() {
+	document.querySelector('#ext_enabled_header').classList.remove('hidden');
+}
+function show_disabled_header() {
+	document.querySelector('#ext_disabled_header').classList.remove('hidden');
+}
+function hide_disabled_header_if_empty() {
+	if (!document.querySelector('.ext_disabled')) {
+		document.querySelector('#ext_disabled_header').classList.add('hidden');
+	}
+}
+function hide_enabled_header_if_empty() {
+	if (!document.querySelector('.ext_enabled')) {
+		document.querySelector('#ext_enabled_header').classList.add('hidden');
+	}
+}
+
+/**
 * Run onload functions
 */
 (function($) {
@@ -243,8 +301,16 @@ function parse_document(container)
 
 		parse_document($('body'));
 
-		// Hide configlist and success message in send statistics page
-		phpbb.toggleDisplay('configlist', -1);
-		phpbb.toggleDisplay('questionnaire-thanks', -1);
+		$('#questionnaire-form').css('display', 'none');
+		var $triggerConfiglist = $('#trigger-configlist');
+
+		$triggerConfiglist.on('click', function () {
+			var $configlist = $('#configlist');
+			$configlist.closest('.send-stats-data-row').toggleClass('send-stats-data-hidden');
+			$configlist.closest('.send-stats-row').find('.send-stats-data-row:first-child').toggleClass('send-stats-data-only-row');
+			$(this).find('i').toggleClass('fa-angle-down fa-angle-up');
+		});
+
+		$('#configlist').closest('.send-stats-data-row').addClass('send-stats-data-hidden');
 	});
 })(jQuery);

@@ -19,7 +19,7 @@
 	{S_HIDDEN_FIELDS}
 
 	<div style="text-align: center;">
-		<input type="submit" name="confirm" value="{L_YES}" class="button2" />&nbsp; 
+		<input type="submit" name="confirm" value="{L_YES}" class="button2" />&nbsp;
 		<input type="submit" name="cancel" value="{L_NO}" class="button2" />
 	</div>
 
@@ -31,6 +31,10 @@
 <!-- IF L_TITLE --><h1>{L_TITLE}</h1><!-- ENDIF -->
 
 <!-- IF L_EXPLAIN --><p>{L_EXPLAIN}</p><!-- ENDIF -->
+
+<fieldset class="quick">
+	<span class="small"><a href="https://www.phpbb.com/go/customise/styles/3.3" target="_blank">{L_BROWSE_STYLES_DATABASE}</a></span>
+</fieldset>
 
 <form id="acp_styles" method="post" action="{U_ACTION}">
 {S_HIDDEN_FIELDS}
@@ -46,6 +50,10 @@
 	<dl>
 		<dt><label>{L_STYLE_PATH}{L_COLON}</label></dt>
 		<dd><strong>{STYLE_PATH}</strong></dd>
+	</dl>
+	<dl>
+		<dt><label>{L_STYLE_VERSION}{L_COLON}</label></dt>
+		<dd><strong>{STYLE_VERSION}</strong></dd>
 	</dl>
 	<dl>
 		<dt><label for="name">{L_COPYRIGHT}{L_COLON}</label></dt>
@@ -83,10 +91,12 @@
 <!-- ENDIF -->
 
 <!-- IF .styles_list -->
+	<!-- EVENT acp_styles_list_before -->
 	<table class="table1 styles">
 	<thead>
 	<tr>
 		<th>{L_STYLE_NAME}</th>
+		<th width="10%" style="white-space: nowrap; text-align: center;">{L_STYLE_PHPBB_VERSION}</th>
 		<!-- IF not STYLES_LIST_HIDE_COUNT --><th width="10%" style="white-space: nowrap; text-align: center;">{L_STYLE_USED_BY}</th><!-- ENDIF -->
 		<th width="25%" style="white-space: nowrap; text-align: center;">{L_ACTIONS}</th>
 		{STYLES_LIST_EXTRA}
@@ -95,7 +105,7 @@
 	</thead>
 	<!-- BEGIN styles_list -->
 	<tbody id="styles-list-{styles_list.S_ROW_COUNT}">
-	<tr<!-- IF styles_list.STYLE_ID and not styles_list.STYLE_ACTIVE --> class="row-inactive"<!-- ENDIF -->>
+	<tr class="row-highlight<!-- IF styles_list.STYLE_ID and not styles_list.STYLE_ACTIVE --> row-inactive<!-- ENDIF -->">
 		<!-- IF styles_list.LEVEL is odd -->
 			<!-- IF $ROW_CLASS == 'row1a' --><!-- DEFINE $ROW_CLASS = 'row1b' --><!-- ELSE --><!-- DEFINE $ROW_CLASS = 'row1a' --><!-- ENDIF -->
 		<!-- ELSE -->
@@ -120,6 +130,7 @@
 				<span class="style-path"><br />{L_STYLE_PATH}{L_COLON} {styles_list.STYLE_PATH_FULL}</span>
 			<!-- ENDIF -->
 		</td>
+		<td class="{$ROW_CLASS} users">{styles_list.STYLE_PHPBB_VERSION}</td>
 		<!-- IF not STYLES_LIST_HIDE_COUNT -->
 			<td class="{$ROW_CLASS} users">{styles_list.USERS}</td>
 		<!-- ENDIF -->
